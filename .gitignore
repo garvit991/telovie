@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.db
+*.db-wal
+*.db-shm
+tools/probe_report.json
+sample files/*.mkv
+.scale-lib/
+.scale-data/
+.idea/
+.vscode/
