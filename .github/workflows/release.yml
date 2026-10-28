@@ -1,0 +1,42 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+      - name: Install build dependencies
+        run: python -m pip install -r requirements.txt -r packaging/requirements-build.txt
+      - name: Build and smoke-test
+        shell: pwsh
+        run: .\packaging\build.ps1 -ArtifactDirectory "$env:RUNNER_TEMP\artifacts"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem "$env:RUNNER_TEMP\artifacts\Telovie-v*-windows-x64.zip" |
+            Select-Object -First 1
+          if (-not $archive) {
+            throw "The packaged release archive was not produced."
+          }
+          gh release create "$env:GITHUB_REF_NAME" $archive.FullName `
+            --repo "$env:GITHUB_REPOSITORY" `
+            --verify-tag `
+            --title "Telovie $env:GITHUB_REF_NAME" `
+            --notes "Windows 11 x64 one-folder build. Extract the ZIP and run Telovie.exe. No Python installation is required."
