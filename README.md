@@ -4,7 +4,17 @@ Local `.mkv` library manager and player for Windows 11. PySide6 + QtMultimedia
 (FFmpeg backend, bundled with PySide6) + SQLite. No VLC, no external codecs, no
 network calls.
 
-## Requirements
+## Download and install
+
+Download the latest `Telovie-v*-windows-x64.zip` from the
+[GitHub Releases](https://github.com/garvit991/telovie/releases) page. Extract
+the whole ZIP to a folder and run `Telovie.exe` from the extracted `Telovie`
+folder. This portable Windows 11 x64 build includes the Qt multimedia
+components and FFmpeg backend; Python is not required. Your library database
+and logs remain in `%LOCALAPPDATA%\Telovie\`, and videos stay in
+`%USERPROFILE%\Videos\Telovie`.
+
+## Requirements (for running from source)
 
 - Windows 11
 - Python 3.10–3.15 (tested on 3.15.1)
@@ -53,6 +63,21 @@ Override the folder with `TELOVIE_LIBRARY_DIR`.
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
+## Build a Windows release
+
+On Windows, install the app and packaging dependencies, then run the build
+script from the repository root:
+
+```powershell
+py -m pip install -r requirements.txt -r packaging\requirements-build.txt
+.\packaging\build.ps1
+```
+
+The script creates `dist\Telovie\Telovie.exe`, verifies that Qt's FFmpeg
+plugin is bundled, starts the app with isolated profile directories, and
+produces `artifacts\Telovie-v<version>-windows-x64.zip`. Pushing a `v*` tag
+also runs this build and publishes the ZIP as a GitHub Release asset.
+
 ## Troubleshooting
 
 - **A video opens but has no picture or sound:** Qt uses its bundled FFmpeg
@@ -95,5 +120,5 @@ Sample media is not included in this repository.
   take effect on the current video when it has no saved per-file choice.
 - **Track shortcuts:** `A` cycles audio tracks; `S` cycles captions, including
   captions-off.
-- **Status:** Phases 0–7 are implemented. Verify track switching and resume
+- **Status:** Phases 0–8 are implemented. Verify track switching and resume
   against your MKV samples as described in `SPEC.md`.

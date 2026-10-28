@@ -324,10 +324,11 @@ Each phase ends with a **stop-and-report**: I summarize files added, show how to
 **Status:** implementation complete. Geometry/volume persistence and 1 MB × 3 log rotation were already present.
 **Acceptance:** unplugging the drive mid-session leaves the app usable; corrupt file shows a clear message and returns to the grid; all error paths log without tracebacks reaching the user. Headless regression tests cover controller error reporting and disabled player controls; unplug/reconnect and real-codec behavior still require manual testing against local media.
 
-### Phase 8 — Packaging (optional, on request)
+### Phase 8 — Packaging
 **Files:** `packaging/telovie.spec`, `packaging/build.ps1`.
 **Steps:** PyInstaller one-folder build; confirm Qt multimedia plugins and FFmpeg DLLs are bundled; smoke-test on a clean Windows profile; document the build command.
-**Acceptance:** `Telovie.exe` launches on a machine without Python and plays an MKV with subtitles.
+**Status:** Implemented for Windows 11 x64. The build script verifies the Qt FFmpeg plugin, smoke-tests startup with isolated profile paths, and creates a versioned ZIP. Tag pushes build and publish that ZIP as a GitHub Release asset.
+**Acceptance:** `Telovie.exe` launches on a machine without Python and plays an MKV with subtitles. Playback with the user's own media still requires manual verification.
 
 ---
 

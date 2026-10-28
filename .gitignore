@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+artifacts/
 *.db
 *.db-wal
 *.db-shm
