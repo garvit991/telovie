@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtGui import QColor
 
 BG = "#0f1115"
 SURFACE = "#12151b"
+GLASS_BG = "rgba(15, 17, 21, 184)" if sys.platform == "win32" else BG
+GLASS_SURFACE = "rgba(18, 21, 27, 204)" if sys.platform == "win32" else SURFACE
 SURFACE_ALT = "#1b1f27"
 BORDER = "#2a2f3a"
 BORDER_HOVER = "#3a4150"
@@ -19,14 +23,14 @@ WARN = "#d29922"
 DANGER = "#f85149"
 
 APP_QSS = f"""
-QMainWindow {{ background: {BG}; }}
+QMainWindow {{ background: {GLASS_BG}; }}
 QWidget#LibraryView, QWidget#LibraryStack, QWidget#GridCanvas,
-QWidget#EmptyPane {{ background: {BG}; }}
-QScrollArea, QScrollArea > QWidget > QWidget {{ background: {BG}; border: none; }}
+QWidget#EmptyPane {{ background: transparent; }}
+QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; border: none; }}
 QWidget {{ color: {TEXT};
            font-family: "Segoe UI Variable Text", "Segoe UI"; font-size: 13px; }}
 
-QWidget#TopBar {{ background: {SURFACE}; border-bottom: 1px solid #232833; }}
+QWidget#TopBar {{ background: {GLASS_SURFACE}; border-bottom: 1px solid #232833; }}
 QLabel#AppTitle {{ font-family: "Century Gothic", "Trebuchet MS", "Segoe UI";
                    font-size: 23px; font-weight: 600; color: {TEXT}; }}
 QLabel#SectionTitle {{ font-family: "Segoe UI Variable Display", "Segoe UI";
@@ -82,7 +86,7 @@ QScrollBar::handle:vertical:hover {{ background: {BORDER_HOVER}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
 
-QStatusBar {{ background: {SURFACE}; border-top: 1px solid #232833; color: {MUTED}; }}
+QStatusBar {{ background: {GLASS_SURFACE}; border-top: 1px solid #232833; color: {MUTED}; }}
 QStatusBar::item {{ border: none; }}
 
 QMenu {{ background: {SURFACE_ALT}; border: 1px solid {BORDER}; padding: 4px; }}
@@ -94,10 +98,10 @@ QMenu::separator {{ height: 1px; background: {BORDER}; margin: 4px 8px; }}
 QToolTip {{ background: {SURFACE_ALT}; color: {TEXT}; border: 1px solid {BORDER};
             padding: 4px; }}
 
-QWidget#PlayerView {{ background: {BG}; }}
+QWidget#PlayerView {{ background: transparent; }}
 QWidget#VideoArea {{ background: #000000; }}
-QWidget#PlayerTop {{ background: {SURFACE}; border-bottom: 1px solid #232833; }}
-QWidget#PlayerBar {{ background: {SURFACE}; border-top: 1px solid #232833; }}
+QWidget#PlayerTop {{ background: {GLASS_SURFACE}; border-bottom: 1px solid #232833; }}
+QWidget#PlayerBar {{ background: {GLASS_SURFACE}; border-top: 1px solid #232833; }}
 QLabel#PlayerTitle {{ font-size: 15px; font-weight: 600; }}
 QLabel#Time {{ color: {MUTED}; font-size: 11px; }}
 QLabel#PlayerError {{ color: {DANGER}; font-size: 14px; }}
@@ -112,6 +116,7 @@ QSlider#Volume::handle:horizontal:hover {{ background: #ffffff; }}
 QLabel#Toast {{ background: #1e2430; border: 1px solid #2f3a4c; border-radius: 8px;
                 padding: 8px 14px; color: {TEXT}; }}
 """
+APP_QSS_OPAQUE = APP_QSS.replace(GLASS_BG, BG).replace(GLASS_SURFACE, SURFACE)
 
 
 def gradient_colors(seed: str) -> tuple[QColor, QColor]:
@@ -123,3 +128,21 @@ def gradient_colors(seed: str) -> tuple[QColor, QColor]:
     top = QColor.fromHsvF(hue, 0.52, 0.44)
     bottom = QColor.fromHsvF((hue + 0.07) % 1.0, 0.68, 0.20)
     return top, bottom
+
+
+def enable_acrylic_backdrop(window_id: int) -> bool:
+    """Request the Windows acrylic system backdrop for the top-level window."""
+    if sys.platform != "win32":
+        return False
+
+    import ctypes
+    from ctypes import wintypes
+
+    backdrop_type = ctypes.c_int(3)  # DWMSBT_TRANSIENTWINDOW
+    result = ctypes.windll.dwmapi.DwmSetWindowAttribute(  # type: ignore[attr-defined]
+        wintypes.HWND(window_id),
+        38,  # DWMWA_SYSTEMBACKDROP_TYPE
+        ctypes.byref(backdrop_type),
+        ctypes.sizeof(backdrop_type),
+    )
+    return result == 0

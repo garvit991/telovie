@@ -24,8 +24,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from telovie.ui.animations import HoverFade
 from telovie.ui.media_card import CardData, MediaCard
-from telovie.ui.theme import BG
 
 SORT_OPTIONS = (
     ("Title A–Z", "title"),
@@ -124,6 +124,7 @@ class FolderCard(QToolButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAccessibleName(path.name)
         self.setAccessibleDescription(f"{count} contents")
+        self._hover_fade = HoverFade(self)
         self.clicked.connect(lambda: self.opened.emit(str(path)))
 
 
@@ -192,6 +193,7 @@ class LibraryView(QWidget):
         self.overflow.setCursor(Qt.CursorShape.PointingHandCursor)
         self.overflow.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.overflow.setFixedSize(38, 34)
+        self._overflow_hover = HoverFade(self.overflow, idle_opacity=0.94)
         menu = QMenu(self.overflow)
         self.open_action = menu.addAction("Open library folder")
         self.refresh_action = menu.addAction("Refresh library\tF5")
@@ -228,6 +230,7 @@ class LibraryView(QWidget):
         empty_row.addStretch(1)
         self.empty_open = QPushButton("Open library folder")
         self.empty_open.setObjectName("Primary")
+        self._empty_open_hover = HoverFade(self.empty_open, idle_opacity=0.94)
         empty_row.addWidget(self.empty_open)
         empty_row.addStretch(1)
         empty_layout.addLayout(empty_row)
@@ -239,7 +242,7 @@ class LibraryView(QWidget):
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.viewport().setAutoFillBackground(False)
-        self.scroll.viewport().setStyleSheet(f"background: {BG};")
+        self.scroll.viewport().setStyleSheet("background: transparent;")
 
         self.container = QWidget()
         self.container.setObjectName("GridCanvas")
@@ -279,6 +282,8 @@ class LibraryView(QWidget):
         self.back_button.setObjectName("FolderBack")
         self.home_button = QPushButton("Home")
         self.home_button.setObjectName("FolderBack")
+        self._back_hover = HoverFade(self.back_button, idle_opacity=0.94)
+        self._home_hover = HoverFade(self.home_button, idle_opacity=0.94)
         self.breadcrumb = QLabel("Collection")
         self.breadcrumb.setObjectName("Breadcrumb")
         nav.addWidget(self.back_button)

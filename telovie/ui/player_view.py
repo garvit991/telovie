@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from telovie.mkv.parser import TrackInfo
 from telovie.playback.controller import PlayerController
+from telovie.ui.animations import HoverFade
 from telovie.ui.controls import IconButton, SeekSlider, VolumeSlider
 from telovie.util.languages import display_name
 from telovie.util.timefmt import format_ms
@@ -69,6 +70,7 @@ class PlayerView(QWidget):
         top.setSpacing(10)
 
         self.back_button = IconButton("back", "Back to library (Esc)", size=34)
+        self._back_hover = HoverFade(self.back_button, idle_opacity=0.94)
         top.addWidget(self.back_button)
 
         self.title_label = QLabel()

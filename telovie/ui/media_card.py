@@ -5,7 +5,16 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QPointF,
+    QRectF,
+    QSize,
+    Qt,
+    QPropertyAnimation,
+    Signal,
+    Property,
+)
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -66,6 +75,7 @@ class MediaCard(QWidget):
         super().__init__(parent)
         self.data = data
         self._hover = False
+        self._hover_progress = 0.0
         self.setFixedSize(CARD_WIDTH, CARD_HEIGHT)
         self.setCursor(
             Qt.CursorShape.PointingHandCursor
@@ -78,6 +88,9 @@ class MediaCard(QWidget):
         self.setAccessibleDescription(
             "Unavailable" if not data.available else "Video"
         )
+        self._hover_animation = QPropertyAnimation(self, b"hoverProgress", self)
+        self._hover_animation.setDuration(180)
+        self._hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
 
     # -- painting ---------------------------------------------------------
 
@@ -93,6 +106,10 @@ class MediaCard(QWidget):
         path.addRoundedRect(art, RADIUS, RADIUS)
 
         painter.save()
+        scale = 1.0 + self._hover_progress * 0.018
+        painter.translate(art.center())
+        painter.scale(scale, scale)
+        painter.translate(-art.center())
         painter.setClipPath(path)
 
         top, bottom = gradient_colors(self.data.title)
@@ -112,6 +129,9 @@ class MediaCard(QWidget):
             self._draw_badge(painter, art, "NEXT UP", ACCENT)
         elif self.data.completed:
             self._draw_badge(painter, art, "WATCHED", OK)
+
+        if self._hover_progress > 0 and self.data.available:
+            self._draw_play_overlay(painter, art)
 
         painter.restore()
 
@@ -172,6 +192,36 @@ class MediaCard(QWidget):
         color = OK if self.data.completed else ACCENT
         painter.fillRect(QRectF(0, y, filled, height), QColor(color))
 
+    def _draw_play_overlay(self, painter: QPainter, art: QRectF) -> None:
+        painter.save()
+        painter.setOpacity(self._hover_progress)
+        path = QPainterPath()
+        path.addRoundedRect(art, RADIUS, RADIUS)
+        painter.setClipPath(path)
+        painter.fillRect(art, QColor(0, 0, 0, 74))
+
+        center = QPointF(art.center().x(), art.center().y() - 3)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 232))
+        painter.drawEllipse(center, 20, 20)
+        painter.setBrush(QColor(20, 24, 31))
+        triangle = QPainterPath()
+        triangle.moveTo(center.x() - 4, center.y() - 8)
+        triangle.lineTo(center.x() + 8, center.y())
+        triangle.lineTo(center.x() - 4, center.y() + 8)
+        triangle.closeSubpath()
+        painter.drawPath(triangle)
+
+        font = QFont("Segoe UI Variable Text", 8, QFont.Weight.DemiBold)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255, 245))
+        painter.drawText(
+            QRectF(0, center.y() + 22, CARD_WIDTH, 16),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+            "Play",
+        )
+        painter.restore()
+
     def _draw_text(self, painter: QPainter) -> None:
         title_font = QFont("Segoe UI Variable Text", 10, QFont.Weight.DemiBold)
         painter.setFont(title_font)
@@ -209,13 +259,28 @@ class MediaCard(QWidget):
 
     def enterEvent(self, event) -> None:  # noqa: N802
         self._hover = True
-        self.update()
+        self._animate_hover(1.0 if self.data.available else 0.0)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
         self._hover = False
-        self.update()
+        self._animate_hover(0.0)
         super().leaveEvent(event)
+
+    def _animate_hover(self, value: float) -> None:
+        self._hover_animation.stop()
+        self._hover_animation.setStartValue(self._hover_progress)
+        self._hover_animation.setEndValue(value)
+        self._hover_animation.start()
+
+    def _get_hover_progress(self) -> float:
+        return self._hover_progress
+
+    def _set_hover_progress(self, value: float) -> None:
+        self._hover_progress = value
+        self.update()
+
+    hoverProgress = Property(float, _get_hover_progress, _set_hover_progress)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if (
