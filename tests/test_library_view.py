@@ -6,6 +6,8 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
+from PySide6.QtGui import QImage  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QGraphicsOpacityEffect,
@@ -96,6 +98,30 @@ def test_homepage_sections_and_nested_collection_navigation(view: LibraryView, t
 
     season_folder.click()
     assert view.folder_flow.count() == 2
+
+
+def test_thumbnail_updates_visible_card_and_is_kept_for_rerender(
+    view: LibraryView, tmp_path: Path
+):
+    media_path = tmp_path / "episode.mkv"
+    card_data = CardData(1, "Episode", 1_000_000, 10, 0, False, True, str(media_path))
+    view.set_items([card_data])
+    thumbnail_path = tmp_path / "thumbnail.jpg"
+    thumbnail = QImage(8, 8, QImage.Format.Format_RGB32)
+    thumbnail.fill(0xFF336699)
+    assert thumbnail.save(str(thumbnail_path), "JPEG")
+
+    view.set_thumbnail(str(media_path), str(thumbnail_path))
+
+    card = view.collection_flow.itemAt(0).widget()
+    assert isinstance(card, MediaCard)
+    assert card.data.thumbnail_path == str(thumbnail_path)
+    assert not card._thumbnail.isNull()
+
+    view.set_items(view._all_cards)
+    rerendered = view.collection_flow.itemAt(0).widget()
+    assert isinstance(rerendered, MediaCard)
+    assert not rerendered._thumbnail.isNull()
 
 
 def test_folder_navigation_has_a_hover_transition(view: LibraryView, tmp_path: Path):

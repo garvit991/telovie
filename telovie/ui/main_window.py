@@ -29,7 +29,8 @@ from telovie.ui.library_view import LibraryView
 from telovie.ui.media_card import CardData
 from telovie.ui.player_view import PlayerView
 from telovie.ui.preferences_dialog import PreferencesDialog
-from telovie.ui.theme import APP_QSS, APP_QSS_OPAQUE, enable_acrylic_backdrop
+from telovie.ui.theme import APP_QSS
+from telovie.ui.thumbnail_service import ThumbnailService
 from telovie.ui.toast import Toast
 from telovie.util.timefmt import format_ms
 
@@ -56,6 +57,8 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(APP_QSS)
 
         self.view = LibraryView(paths.library_dir, self)
+        self._thumbnails = ThumbnailService(paths.data_dir / "thumbnails", self)
+        self._thumbnails.thumbnailReady.connect(self.view.set_thumbnail)
         self.player = PlayerView(PlayerController(self), self)
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.view)
@@ -128,6 +131,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:  # noqa: N802
         self._watcher.stop()
         self._volume_timer.stop()
+        self._thumbnails.stop()
         self._save_volume()
         # release the media file handle before the window goes away
         self.player.controller.close()
@@ -236,6 +240,11 @@ class MainWindow(QMainWindow):
                 completed=bool(row["IsCompleted"]),
                 available=bool(row["IsAvailable"]),
                 file_path=row["FilePath"],
+                thumbnail_path=(
+                    str(thumbnail)
+                    if (thumbnail := self._thumbnails.cache_path(row["FilePath"]))
+                    else None
+                ),
             )
             for row in all_rows
         ]
@@ -255,6 +264,7 @@ class MainWindow(QMainWindow):
             if int(row["id"]) in cards_by_id
         )
         self.view.set_library_items(cards, continue_cards)
+        self._thumbnails.request([card.file_path for card in cards])
 
         total = self.db.library.count()
         if search:
@@ -274,6 +284,7 @@ class MainWindow(QMainWindow):
         if not Path(row["FilePath"]).is_file():
             self._show_missing_file_prompt(media_id)
             return
+        self._thumbnails.pause()
         if not row["IsAvailable"]:
             self.start_scan()
         self._current_media_id = int(media_id)
@@ -312,6 +323,7 @@ class MainWindow(QMainWindow):
         self._refresh_shortcut.setEnabled(True)
         self.setWindowTitle(APP_NAME)
         self.refresh_grid()
+        self._thumbnails.resume()
         self.view.focus_library()
 
     # -- volume -----------------------------------------------------------

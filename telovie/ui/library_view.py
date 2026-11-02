@@ -338,6 +338,28 @@ class LibraryView(QWidget):
         """Compatibility wrapper for callers that only have a flat card list."""
         self.set_library_items(cards, [])
 
+    def set_thumbnail(self, file_path: str, thumbnail_path: str) -> None:
+        self._all_cards = [
+            replace(card, thumbnail_path=thumbnail_path)
+            if card.file_path == file_path
+            else card
+            for card in self._all_cards
+        ]
+        self._continue_cards = [
+            (
+                replace(card, thumbnail_path=thumbnail_path)
+                if card.file_path == file_path
+                else card,
+                recommended,
+            )
+            for card, recommended in self._continue_cards
+        ]
+        for flow in (self.continue_flow, self.collection_flow, self.folder_flow):
+            for index in range(flow.count()):
+                widget = flow.itemAt(index).widget()
+                if isinstance(widget, MediaCard) and widget.data.file_path == file_path:
+                    widget.set_thumbnail(thumbnail_path)
+
     def _clear_flow(self, flow: FlowLayout) -> None:
         while flow.count():
             item = flow.takeAt(0)

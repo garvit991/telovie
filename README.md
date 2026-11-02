@@ -40,6 +40,7 @@ Data lives in `%LOCALAPPDATA%\Telovie\`:
 
 - `library.db` — SQLite library, playback state, preferences
 - `logs\app.log` — rotating log
+- `thumbnails\` — cached video-frame artwork for library cards
 
 Override with `TELOVIE_DATA_DIR` (handy for a portable copy or tests).
 
@@ -56,6 +57,8 @@ Extract zips straight into it (subfolders are fine, e.g.
 automatically — no folder picker, no Scan button. New or changed files are
 picked up within ~10 seconds; `F5` (or `⋯` → Refresh library) forces a check.
 Override the folder with `TELOVIE_LIBRARY_DIR`.
+Library cards generate muted preview thumbnails automatically; unsupported
+videos keep the built-in artwork.
 
 ## Tests
 

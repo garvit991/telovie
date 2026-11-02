@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -23,6 +23,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
 )
 from PySide6.QtWidgets import QMenu, QWidget
 
@@ -54,6 +55,7 @@ class CardData:
     available: bool
     file_path: str
     recommended: bool = False
+    thumbnail_path: str | None = None
 
 
 def _initials(title: str) -> str:
@@ -112,15 +114,24 @@ class MediaCard(QWidget):
         painter.translate(-art.center())
         painter.setClipPath(path)
 
-        top, bottom = gradient_colors(self.data.title)
-        gradient = QLinearGradient(art.topLeft(), art.bottomRight())
-        gradient.setColorAt(0.0, top)
-        gradient.setColorAt(1.0, bottom)
-        painter.fillRect(art, gradient)
+        if self._thumbnail.isNull():
+            top, bottom = gradient_colors(self.data.title)
+            gradient = QLinearGradient(art.topLeft(), art.bottomRight())
+            gradient.setColorAt(0.0, top)
+            gradient.setColorAt(1.0, bottom)
+            painter.fillRect(art, gradient)
 
-        painter.setPen(QColor(255, 255, 255, 30))
-        painter.setFont(QFont("Segoe UI Variable Display", 44, QFont.Weight.Bold))
-        painter.drawText(art, Qt.AlignmentFlag.AlignCenter, _initials(self.data.title))
+            painter.setPen(QColor(255, 255, 255, 30))
+            painter.setFont(QFont("Segoe UI Variable Display", 44, QFont.Weight.Bold))
+            painter.drawText(
+                art, Qt.AlignmentFlag.AlignCenter, _initials(self.data.title)
+            )
+        else:
+            painter.drawPixmap(art.toRect(), self._thumbnail)
+            shade = QLinearGradient(art.topLeft(), art.bottomLeft())
+            shade.setColorAt(0.0, QColor(0, 0, 0, 55))
+            shade.setColorAt(1.0, QColor(0, 0, 0, 0))
+            painter.fillRect(art, shade)
 
         self._draw_duration_chip(painter, art)
         if not self.data.available:
@@ -154,6 +165,12 @@ class MediaCard(QWidget):
             painter.drawRoundedRect(
                 QRectF(1.5, 1.5, CARD_WIDTH - 3, CARD_HEIGHT - 3), RADIUS, RADIUS
             )
+
+    def set_thumbnail(self, thumbnail_path: str) -> None:
+        self._thumbnail = QPixmap(thumbnail_path)
+        if not self._thumbnail.isNull():
+            self.data = replace(self.data, thumbnail_path=thumbnail_path)
+            self.update()
 
     def _draw_duration_chip(self, painter: QPainter, art: QRectF) -> None:
         text = format_ms(self.data.duration_ms) if self.data.duration_ms else "—"
