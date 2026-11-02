@@ -137,7 +137,7 @@ def test_display_title():
     assert display_title("Some.File", "Some.File") == "Some File"
     assert display_title("Some.File.mkv", "Some.File") == "Some File"
     assert display_title("movieverse.co", "The.Mentalist.S01E01") == (
-        "The Mentalist S01E01"
+        "The Mentalist - S01E01"
     )
     assert display_title("Game.Of.Thrones.S02E05", "Dr. Strangelove") == (
         "Dr. Strangelove"
@@ -145,8 +145,20 @@ def test_display_title():
 
 
 def test_prettify_title():
-    assert prettify_title("Show.S01E01.1080p") == "Show S01E01 1080p"
-    assert prettify_title("Show S01E01") == "Show S01E01"
+    assert prettify_title("Show.S01E01.1080p") == "Show - S01E01"
+    assert (
+        prettify_title(
+            "Lost S02E21 720p English Esubs MoviesMod.org"
+        )
+        == "Lost - S02E21"
+    )
+    assert (
+        prettify_title(
+            "Game.Of.Thrones.S02E05.The.Ghost.1080p.x264.BluRay"
+        )
+        == "Game Of Thrones - S02E05 The Ghost"
+    )
+    assert prettify_title("Show S01E01") == "Show - S01E01"
     assert prettify_title("...") == "..."
     assert prettify_title("") == ""
 

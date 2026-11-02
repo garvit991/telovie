@@ -6,6 +6,7 @@ This is the scanner's metadata source and the language oracle for track menus.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -40,6 +41,21 @@ TRK_DEFAULT = 0x88
 TRK_FORCED = 0x55AA
 
 TRACK_TYPES = {1: "video", 2: "audio", 17: "subtitle", 3: "complex", 16: "logo"}
+
+_RELEASE_TAG = re.compile(
+    r"(?i)(?:^|[ ._-])"
+    r"(?:"
+    r"2160p|1440p|1080[pi]|720[pi]|576p|480p|"
+    r"x26[45]|h\.?26[45]|hevc|av1|xvid|"
+    r"web[ ._-]?dl|web[ ._-]?rip|blu[ ._-]?ray|b[dr][ ._-]?rip|"
+    r"hdtv|pdtv|dvdrip|hdrip|remux|"
+    r"10[ ._-]?bit|8[ ._-]?bit|hdr10?\+?|dolby[ ._-]?vision|"
+    r"aac|dts(?:[ ._-]?hd)?|ddp?(?:[ ._-]?\d(?:\.\d)?)?|"
+    r"proper|repack|limited|internal|"
+    r"esubs?|multi[ ._-]?audio|dual[ ._-]?audio"
+    r")(?=$|[ ._-])"
+)
+_EPISODE_MARKER = re.compile(r"\bS\d{1,2}\s*E\d{1,3}\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -76,15 +92,28 @@ def display_title(_raw_title: str, stem: str) -> str:
 
 
 def prettify_title(title: str) -> str:
-    """Turn ``Game.Of.Thrones.S02E05`` into ``Game Of Thrones S02E05``.
+    """Clean common release tags and format episode filenames for display.
 
-    Only when the name has no spaces at all: a real title such as
-    ``Dr. Strangelove`` keeps its punctuation.
+    Release metadata is discarded from its first recognized tag onward. Dots
+    and underscores are treated as word separators in filenames, while normal
+    movie titles retain their punctuation.
     """
-    if " " in title or "." not in title:
-        return title
-    cleaned = " ".join(part for part in title.split(".") if part)
-    return cleaned or title
+    original_title = title
+    release_tag = _RELEASE_TAG.search(title)
+    if release_tag:
+        title = title[: release_tag.start()]
+    title = title.strip(" ._-")
+    if " " not in title or _EPISODE_MARKER.search(title):
+        title = re.sub(r"[._]+", " ", title)
+    title = re.sub(r"\s+", " ", title).strip()
+
+    episode = _EPISODE_MARKER.search(title)
+    if episode and title[: episode.start()].strip():
+        return (
+            f"{title[:episode.start()].strip()} - "
+            f"{title[episode.start():].strip()}"
+        )
+    return title or (original_title if not re.search(r"\w", original_title) else "")
 
 
 def parse_mkv(path: str | Path, *, max_bytes: int = MAX_HEADER_BYTES) -> MkvInfo:

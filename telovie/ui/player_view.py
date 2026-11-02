@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from telovie.mkv.parser import TrackInfo
 from telovie.playback.controller import PlayerController
 from telovie.ui.animations import HoverFade
-from telovie.ui.controls import IconButton, SeekSlider, VolumeSlider
+from telovie.ui.controls import IconButton, SeekButton, SeekSlider, VolumeSlider
 from telovie.util.languages import display_name
 from telovie.util.timefmt import format_ms
 
@@ -84,6 +84,18 @@ class PlayerView(QWidget):
         self.preferences_button.setText("Preferences")
         self.preferences_button.setCursor(Qt.CursorShape.PointingHandCursor)
         top.addWidget(self.preferences_button)
+        self.track_button = QToolButton(self.top_bar)
+        self.track_button.setObjectName("TrackMenu")
+        self.track_button.setText("\u22ef")
+        self.track_button.setToolTip("Audio tracks and subtitles")
+        self.track_button.setAccessibleName("Audio tracks and subtitles")
+        self.track_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.track_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.track_menu = QMenu(self.track_button)
+        self.audio_menu = self.track_menu.addMenu("Audio Tracks")
+        self.subtitle_menu = self.track_menu.addMenu("Subtitles")
+        self.track_button.setMenu(self.track_menu)
+        top.addWidget(self.track_button)
         root.addWidget(self.top_bar)
 
         self.video_area = QWidget(self)
@@ -116,6 +128,10 @@ class PlayerView(QWidget):
 
         self.play_button = IconButton("play", "Play (Space)", size=38, icon_size=22)
         bar.addWidget(self.play_button)
+        self.rewind_button = SeekButton("rewind", self.bottom_bar)
+        bar.addWidget(self.rewind_button)
+        self.skip_button = SeekButton("skip", self.bottom_bar)
+        bar.addWidget(self.skip_button)
 
         self.elapsed = QLabel("0:00")
         self.elapsed.setObjectName("Time")
@@ -140,16 +156,6 @@ class PlayerView(QWidget):
         self.volume = VolumeSlider()
         bar.addWidget(self.volume)
 
-        self.audio_button = self._track_button("Audio")
-        self.audio_menu = QMenu(self.audio_button)
-        self.audio_button.setMenu(self.audio_menu)
-        bar.addWidget(self.audio_button)
-
-        self.subtitle_button = self._track_button("Captions")
-        self.subtitle_menu = QMenu(self.subtitle_button)
-        self.subtitle_button.setMenu(self.subtitle_menu)
-        bar.addWidget(self.subtitle_button)
-
         self.fullscreen_button = IconButton(
             "fullscreen", "Fullscreen (F)", size=32, icon_size=18
         )
@@ -157,19 +163,12 @@ class PlayerView(QWidget):
 
         root.addWidget(self.bottom_bar)
 
-    def _track_button(self, label: str) -> QToolButton:
-        button = QToolButton(self)
-        button.setObjectName("TrackMenu")
-        button.setText(label)
-        button.setToolTip(f"Select {label.lower()}")
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        button.setCursor(Qt.CursorShape.PointingHandCursor)
-        return button
-
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self._request_back)
         self.preferences_button.clicked.connect(self.preferencesRequested)
         self.play_button.clicked.connect(self._toggle_playback)
+        self.rewind_button.clicked.connect(lambda: self._nudge(-10_000))
+        self.skip_button.clicked.connect(lambda: self._nudge(10_000))
         self.fullscreen_button.clicked.connect(self.toggle_fullscreen)
 
         self.seek.seekRequested.connect(self._on_seek_requested)
@@ -190,6 +189,8 @@ class PlayerView(QWidget):
         self.controller.errorOccurred.connect(self._on_error)
         self.controller.tracksChanged.connect(self._rebuild_track_menus)
         self.play_button.setEnabled(False)
+        self.rewind_button.setEnabled(False)
+        self.skip_button.setEnabled(False)
         self._rebuild_track_menus()
 
     def _install_shortcuts(self) -> None:
@@ -223,6 +224,8 @@ class PlayerView(QWidget):
         self.seek.set_buffered(0)
         self.seek.setEnabled(self._duration > 0)
         self.play_button.setEnabled(True)
+        self.rewind_button.setEnabled(self._duration > 0)
+        self.skip_button.setEnabled(self._duration > 0)
         self.elapsed.setText("0:00")
         self.total.setText(format_ms(self._duration))
         self.error_label.hide()
@@ -249,8 +252,9 @@ class PlayerView(QWidget):
         self.total.setText("0:00")
         self.play_button.set_kind("play")
         self.play_button.setEnabled(False)
-        self.audio_button.setEnabled(False)
-        self.subtitle_button.setEnabled(False)
+        self.track_button.setEnabled(False)
+        self.rewind_button.setEnabled(False)
+        self.skip_button.setEnabled(False)
         self.error_label.hide()
         if self._fullscreen:
             self.set_fullscreen(False)
@@ -371,7 +375,7 @@ class PlayerView(QWidget):
             subtitle_metadata = ()
 
         self.audio_menu.clear()
-        self.audio_button.setEnabled(audio_count > 0)
+        self.audio_menu.setEnabled(audio_count > 0)
         for index in range(audio_count):
             track = audio_metadata[index] if index < len(audio_metadata) else None
             action = self.audio_menu.addAction(
@@ -385,7 +389,7 @@ class PlayerView(QWidget):
             )
 
         self.subtitle_menu.clear()
-        self.subtitle_button.setEnabled(subtitle_count > 0)
+        self.subtitle_menu.setEnabled(subtitle_count > 0)
         off_action = self.subtitle_menu.addAction("Captions off")
         off_action.setCheckable(True)
         off_action.setChecked(self.controller.active_subtitle_track < 0)
@@ -408,6 +412,7 @@ class PlayerView(QWidget):
                 lambda _checked=False, track_index=index:
                 self.controller.select_subtitle_track(track_index)
             )
+        self.track_button.setEnabled(audio_count > 0 or subtitle_count > 0)
 
     def _request_back(self) -> None:
         if self._fullscreen:
@@ -449,6 +454,8 @@ class PlayerView(QWidget):
     def _on_media_status(self, status) -> None:
         if status == QMediaPlayer.MediaStatus.LoadedMedia:
             self.play_button.setEnabled(True)
+            self.rewind_button.setEnabled(self._duration > 0)
+            self.skip_button.setEnabled(self._duration > 0)
             self.seek.setEnabled(self._duration > 0)
             self._rebuild_track_menus()
         if status == QMediaPlayer.MediaStatus.EndOfMedia:
@@ -468,8 +475,9 @@ class PlayerView(QWidget):
         self.play_button.set_kind("play")
         self.play_button.setEnabled(False)
         self.seek.setEnabled(False)
-        self.audio_button.setEnabled(False)
-        self.subtitle_button.setEnabled(False)
+        self.track_button.setEnabled(False)
+        self.rewind_button.setEnabled(False)
+        self.skip_button.setEnabled(False)
 
     def _on_volume_slider(self, value: int) -> None:
         self.controller.set_volume(int(value))

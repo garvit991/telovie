@@ -5,7 +5,20 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRect, QSettings, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import (
+    QByteArray,
+    QEasingCurve,
+    QPoint,
+    QPropertyAnimation,
+    QRect,
+    QSettings,
+    QSize,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -18,7 +31,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QStackedWidget,
-    QStyle,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -26,6 +38,7 @@ from PySide6.QtWidgets import (
 
 from telovie.ui.animations import HoverFade
 from telovie.ui.media_card import CardData, MediaCard
+from telovie.ui.theme import ACCENT
 
 SORT_OPTIONS = (
     ("Title A–Z", "title"),
@@ -33,6 +46,20 @@ SORT_OPTIONS = (
     ("Duration", "duration"),
     ("Progress", "progress"),
 )
+
+
+def _folder_icon() -> QIcon:
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"
+        viewBox="0 0 48 48">
+        <path fill="{ACCENT}" d="M5 11a4 4 0 0 1 4-4h10l4 4h16a4 4 0 0 1 4 4v21a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4z"/>
+    </svg>"""
+    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+    pixmap = QPixmap(48, 48)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    renderer.render(painter)
+    painter.end()
+    return QIcon(pixmap)
 
 
 class FlowLayout(QLayout):
@@ -117,7 +144,7 @@ class FolderCard(QToolButton):
         self.path = path
         self.setObjectName("FolderCard")
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        self.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
+        self.setIcon(_folder_icon())
         self.setIconSize(QSize(46, 46))
         self.setText(f"{path.name}\n{count} contents")
         self.setFixedSize(236, 132)
@@ -125,7 +152,26 @@ class FolderCard(QToolButton):
         self.setAccessibleName(path.name)
         self.setAccessibleDescription(f"{count} contents")
         self._hover_fade = HoverFade(self)
-        self.clicked.connect(lambda: self.opened.emit(str(path)))
+        self._pending_open = False
+        self._click_animation = QPropertyAnimation(self, b"iconSize", self)
+        self._click_animation.setDuration(180)
+        self._click_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._click_animation.setKeyValueAt(0.45, QSize(42, 42))
+        self._click_animation.setEndValue(QSize(46, 46))
+        self._click_animation.finished.connect(self._finish_open)
+        self.clicked.connect(self._animate_open)
+
+    def _animate_open(self) -> None:
+        if self._click_animation.state() == QPropertyAnimation.State.Running:
+            return
+        self._pending_open = True
+        self._click_animation.setStartValue(self.iconSize())
+        self._click_animation.start()
+
+    def _finish_open(self) -> None:
+        if self._pending_open:
+            self._pending_open = False
+            self.opened.emit(str(self.path))
 
 
 class LibraryView(QWidget):
@@ -133,6 +179,7 @@ class LibraryView(QWidget):
     startOverRequested = Signal(int)
     revealRequested = Signal(int)
     removeRequested = Signal(int)
+    deleteRequested = Signal(int)
     openFolderRequested = Signal()
     refreshRequested = Signal()
     preferencesRequested = Signal()
@@ -167,6 +214,13 @@ class LibraryView(QWidget):
         title.setObjectName("AppTitle")
         top_layout.addWidget(title)
         top_layout.addStretch(1)
+
+        self.watch_stat = QLabel("0 hours watched")
+        self.watch_stat.setObjectName("WatchStat")
+        self.watch_stat.setToolTip(
+            "Completed media duration plus time spent watching in Telovie"
+        )
+        top_layout.addWidget(self.watch_stat)
 
         self.search = QLineEdit()
         self.search.setObjectName("Search")
@@ -320,6 +374,12 @@ class LibraryView(QWidget):
     def current_filters(self) -> tuple[str, str]:
         return self.search.text().strip(), str(self.sort.currentData())
 
+    def set_watched_time(self, total_ms: int) -> None:
+        hours = max(0, int(total_ms)) // 3_600_000
+        self.watch_stat.setText(
+            f"{hours:,} {'hour' if hours == 1 else 'hours'} watched"
+        )
+
     def set_library_items(
         self,
         cards: list[CardData],
@@ -385,6 +445,7 @@ class LibraryView(QWidget):
         card.startOverRequested.connect(self.startOverRequested)
         card.revealRequested.connect(self.revealRequested)
         card.removeRequested.connect(self.removeRequested)
+        card.deleteRequested.connect(self.deleteRequested)
         flow.addWidget(card)
 
     def _render_content(self) -> None:

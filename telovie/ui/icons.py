@@ -7,7 +7,7 @@ and geometric to match the flat dark theme.
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 
 
 def _pen(color: QColor, width: float = 1.6) -> QPen:
@@ -155,6 +155,34 @@ def draw_back(painter: QPainter, rect: QRectF, color: QColor) -> None:
     )
 
 
+def draw_seek(
+    painter: QPainter, rect: QRectF, color: QColor, *, forward: bool = False
+) -> None:
+    painter.setPen(_pen(color, 1.6))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    center_y = rect.center().y()
+    center_x = rect.center().x() + (
+        rect.width() * 0.05 if forward else -rect.width() * 0.05
+    )
+    painter.drawArc(
+        QRectF(center_x - 6, center_y - 6, 12, 12),
+        45 * 16 if forward else 135 * 16,
+        270 * 16,
+    )
+    direction = 1 if forward else -1
+    tip_x = center_x + direction * 7
+    painter.drawLine(
+        QPointF(tip_x, center_y - 6),
+        QPointF(tip_x - direction * 4, center_y - 6),
+    )
+    painter.drawLine(
+        QPointF(tip_x, center_y - 6),
+        QPointF(tip_x, center_y - 2),
+    )
+    painter.setFont(QFont("Segoe UI", 6, QFont.Weight.DemiBold))
+    painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "10")
+
+
 DRAWERS = {
     "play": draw_play,
     "pause": draw_pause,
@@ -167,6 +195,12 @@ DRAWERS = {
         painter, rect, color, exiting=True
     ),
     "back": draw_back,
+    "rewind": lambda painter, rect, color: draw_seek(
+        painter, rect, color, forward=False
+    ),
+    "skip": lambda painter, rect, color: draw_seek(
+        painter, rect, color, forward=True
+    ),
 }
 
 

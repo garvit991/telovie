@@ -155,6 +155,7 @@ def test_preferences_defaults_and_normalisation(db: Database):
     assert prefs.volume == 80
     assert prefs.last_library_root is None
     assert prefs.scan_recursive is True
+    assert prefs.total_watch_time_ms == 0
     assert prefs.audio_langs == ["eng"]
 
     updated = db.prefs.update(
@@ -172,6 +173,16 @@ def test_preferences_defaults_and_normalisation(db: Database):
     cleared = db.prefs.update(clear_library_root=True, volume=-5)
     assert cleared.last_library_root is None
     assert cleared.volume == 0
+
+
+def test_watched_time_combines_completed_duration_and_live_watch_time(db: Database):
+    completed = add(db, "Completed", 3_600_000)
+    completed_id = db.library.find_by_path(completed)["id"]
+    db.playback.mark_completed(completed_id)
+
+    assert db.prefs.watched_time_ms() == 3_600_000
+    assert db.prefs.add_watch_time_ms(90_000) == 3_690_000
+    assert db.prefs.get().total_watch_time_ms == 90_000
 
 
 def test_preferences_persist_across_reopen(tmp_path: Path):

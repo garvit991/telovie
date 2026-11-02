@@ -51,18 +51,84 @@ def test_player_disables_playback_controls_after_media_error():
     view = PlayerView(controller)
     view.play_button.setEnabled(True)
     view.seek.setEnabled(True)
-    view.audio_button.setEnabled(True)
-    view.subtitle_button.setEnabled(True)
+    view.track_button.setEnabled(True)
+    view.rewind_button.setEnabled(True)
+    view.skip_button.setEnabled(True)
 
     view._on_error(QMediaPlayer.Error.FormatError, "unsupported stream")
 
     assert view.error_label.text().startswith("Playback failed")
     assert not view.play_button.isEnabled()
     assert not view.seek.isEnabled()
-    assert not view.audio_button.isEnabled()
-    assert not view.subtitle_button.isEnabled()
+    assert not view.track_button.isEnabled()
+    assert not view.rewind_button.isEnabled()
+    assert not view.skip_button.isEnabled()
     view.close()
     controller.close()
+
+
+def test_player_exposes_combined_track_menu_and_seek_controls():
+    _app()
+    controller = PlayerController()
+    view = PlayerView(controller)
+    nudges: list[int] = []
+    view._nudge = nudges.append
+    view.rewind_button.setEnabled(True)
+    view.skip_button.setEnabled(True)
+    assert view.track_menu.actions()[0].text() == "Audio Tracks"
+    assert view.track_menu.actions()[1].text() == "Subtitles"
+    assert view.rewind_button.kind == "rewind"
+    assert view.skip_button.kind == "skip"
+    view.rewind_button.click()
+    view.skip_button.click()
+    assert nudges == [-10_000, 10_000]
+    view.close()
+    controller.close()
+
+
+def test_controller_accumulates_only_elapsed_play_time(tmp_path: Path, monkeypatch):
+    _app()
+    database = Database(tmp_path / "watch-time.db")
+    controller = PlayerController()
+    try:
+        controller.set_watch_time_store(database.prefs)
+        ticks = iter((14.5, 20.0))
+        monkeypatch.setattr("telovie.playback.controller.time.monotonic", lambda: next(ticks))
+        controller._playing_since = 10.0
+
+        controller._flush_timer_position()
+        assert database.prefs.get().total_watch_time_ms == 4_500
+
+        controller._flush_timer_position()
+        assert database.prefs.get().total_watch_time_ms == 4_500
+    finally:
+        controller.close()
+        database.close()
+
+
+def test_delete_file_removes_file_and_database_row(tmp_path: Path, monkeypatch):
+    window, database = _window(tmp_path)
+    try:
+        file_path = window.paths.library_dir / "Delete me.mkv"
+        file_path.write_bytes(b"mkv")
+        database.library.upsert_many(
+            [MediaUpsert("Delete me", str(file_path), 1_000)]
+        )
+        media_id = int(database.library.find_by_path(str(file_path))["id"])
+        refreshed: list[bool] = []
+        monkeypatch.setattr(
+            QMessageBox, "question", lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes
+        )
+        monkeypatch.setattr(window, "refresh_grid", lambda: refreshed.append(True))
+
+        window._on_delete_file(media_id)
+
+        assert not file_path.exists()
+        assert database.library.get(media_id) is None
+        assert refreshed == [True]
+    finally:
+        window.close()
+        database.close()
 
 
 def test_missing_playback_file_offers_recovery(tmp_path: Path, monkeypatch):

@@ -7,6 +7,8 @@ adds position saving and resume on top of ``loaded``; Phase 6 adds track memory.
 from __future__ import annotations
 
 import logging
+import sqlite3
+import time
 
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
@@ -35,6 +37,7 @@ class PlayerController(QObject):
     loaded = Signal()  # first LoadedMedia for the current source
     resumeRequested = Signal(int)
     tracksChanged = Signal()
+    watchTimeChanged = Signal(int)
 
     def __init__(
         self, parent: QObject | None = None, *, playback_repo=None
@@ -50,6 +53,9 @@ class PlayerController(QObject):
         self._source_path: str | None = None
         self._current_media_id: int | None = None
         self._playback_repo = playback_repo
+        self._watch_time_repo = None
+        self._playing_since: float | None = None
+        self._pending_watch_time_ms = 0
         self._last_position_ms = 0
         self._last_saved_position_ms = 0
         self._is_completed = False
@@ -91,6 +97,9 @@ class PlayerController(QObject):
             self._current_media_id = int(media_id)
             self._last_saved_position_ms = self._load_last_position_ms()
             self._is_completed = self._load_is_completed()
+
+    def set_watch_time_store(self, preferences_repo) -> None:
+        self._watch_time_repo = preferences_repo
 
     def set_track_metadata(
         self,
@@ -190,6 +199,8 @@ class PlayerController(QObject):
 
     def close(self) -> None:
         """Stop and drop the source so Windows releases the file handle."""
+        self._accumulate_watch_time()
+        self._flush_watch_time()
         self._persist_position(force=True)
         self._save_timer.stop()
         self._player.stop()
@@ -302,10 +313,14 @@ class PlayerController(QObject):
     def _on_playback_state(self, state) -> None:
         self.playbackStateChanged.emit(state)
         if state == QMediaPlayer.PlaybackState.PlayingState:
+            if self._playing_since is None:
+                self._playing_since = time.monotonic()
             self._poll_buffer()
             self._buffer_timer.start()
             self._save_timer.start(PROGRESS_SAVE_INTERVAL_MS)
         else:
+            self._accumulate_watch_time()
+            self._flush_watch_time()
             self._buffer_timer.stop()
             self._persist_position(force=True)
             self._save_timer.stop()
@@ -467,7 +482,36 @@ class PlayerController(QObject):
         self._is_completed = bool(decision.is_completed)
 
     def _flush_timer_position(self) -> None:
+        self._accumulate_watch_time()
+        self._flush_watch_time()
         self._persist_position(force=False)
+
+    def _accumulate_watch_time(self) -> None:
+        if self._playing_since is None:
+            return
+        now = time.monotonic()
+        self._pending_watch_time_ms += max(
+            0, int((now - self._playing_since) * 1000)
+        )
+        self._playing_since = (
+            now
+            if self._player.playbackState()
+            == QMediaPlayer.PlaybackState.PlayingState
+            else None
+        )
+
+    def _flush_watch_time(self) -> None:
+        if self._watch_time_repo is None or self._pending_watch_time_ms <= 0:
+            return
+        try:
+            total = self._watch_time_repo.add_watch_time_ms(
+                self._pending_watch_time_ms
+            )
+        except sqlite3.Error:
+            log.exception("Could not save total watch time")
+            return
+        self._pending_watch_time_ms = 0
+        self.watchTimeChanged.emit(total)
 
     def _on_error(self, error: QMediaPlayer.Error, message: str) -> None:
         if error == QMediaPlayer.Error.NoError:

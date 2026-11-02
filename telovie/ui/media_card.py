@@ -39,7 +39,7 @@ from telovie.ui.theme import (
 from telovie.util.timefmt import format_ms
 
 CARD_WIDTH = 236
-CARD_HEIGHT = 192
+CARD_HEIGHT = 208
 ART_HEIGHT = 132
 RADIUS = 10
 
@@ -67,17 +67,49 @@ def _initials(title: str) -> str:
     return (words[0][0] + words[1][0]).upper()
 
 
+def _wrapped_title_lines(title: str, metrics: QFontMetrics, width: int) -> list[str]:
+    words = title.split()
+    lines: list[str] = []
+    while words and len(lines) < 2:
+        line: list[str] = []
+        while words:
+            candidate = " ".join((*line, words[0]))
+            if line and metrics.horizontalAdvance(candidate) > width:
+                break
+            line.append(words.pop(0))
+            if metrics.horizontalAdvance(" ".join(line)) > width:
+                break
+        lines.append(" ".join(line))
+
+    if words and lines:
+        lines[-1] = metrics.elidedText(
+            " ".join((lines[-1], *words)),
+            Qt.TextElideMode.ElideRight,
+            width,
+        )
+    for index, line in enumerate(lines):
+        if metrics.horizontalAdvance(line) > width:
+            lines[index] = metrics.elidedText(
+                line, Qt.TextElideMode.ElideRight, width
+            )
+    return lines
+
+
 class MediaCard(QWidget):
     playRequested = Signal(int)
     startOverRequested = Signal(int)
     revealRequested = Signal(int)
     removeRequested = Signal(int)
+    deleteRequested = Signal(int)
 
     def __init__(self, data: CardData, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.data = data
         self._hover = False
         self._hover_progress = 0.0
+        self._thumbnail = (
+            QPixmap(data.thumbnail_path) if data.thumbnail_path else QPixmap()
+        )
         self.setFixedSize(CARD_WIDTH, CARD_HEIGHT)
         self.setCursor(
             Qt.CursorShape.PointingHandCursor
@@ -93,12 +125,24 @@ class MediaCard(QWidget):
         self._hover_animation = QPropertyAnimation(self, b"hoverProgress", self)
         self._hover_animation.setDuration(180)
         self._hover_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._click_progress = 0.0
+        self._click_pending = False
+        self._click_animation = QPropertyAnimation(self, b"clickProgress", self)
+        self._click_animation.setDuration(180)
+        self._click_animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._click_animation.setKeyValueAt(0.45, 1.0)
+        self._click_animation.setEndValue(0.0)
+        self._click_animation.finished.connect(self._finish_click)
 
     # -- painting ---------------------------------------------------------
 
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt naming
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.translate(self.rect().center())
+        scale = 1.0 - self._click_progress * 0.035
+        painter.scale(scale, scale)
+        painter.translate(-self.rect().center())
 
         if not self.data.available:
             painter.setOpacity(0.45)
@@ -243,17 +287,23 @@ class MediaCard(QWidget):
         title_font = QFont("Segoe UI Variable Text", 10, QFont.Weight.DemiBold)
         painter.setFont(title_font)
         painter.setPen(QColor(TEXT if self.data.available else MUTED))
-        title_rect = QRectF(2, ART_HEIGHT + 8, CARD_WIDTH - 4, 20)
-        title = QFontMetrics(title_font).elidedText(
-            self.data.title,
-            Qt.TextElideMode.ElideRight,
-            int(title_rect.width()),
+        title_rect = QRectF(2, ART_HEIGHT + 5, CARD_WIDTH - 4, 38)
+        metrics = QFontMetrics(title_font)
+        lines = _wrapped_title_lines(
+            self.data.title, metrics, int(title_rect.width())
         )
-        painter.drawText(
-            title_rect,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-            title,
-        )
+        line_height = metrics.height()
+        for index, line in enumerate(lines):
+            painter.drawText(
+                QRectF(
+                    title_rect.left(),
+                    title_rect.top() + index * line_height,
+                    title_rect.width(),
+                    line_height,
+                ),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                line,
+            )
 
         meta_font = QFont("Segoe UI Variable Text", 8)
         painter.setFont(meta_font)
@@ -267,7 +317,7 @@ class MediaCard(QWidget):
         else:
             meta = ""
         painter.drawText(
-            QRectF(2, ART_HEIGHT + 30, CARD_WIDTH - 4, 18),
+            QRectF(2, ART_HEIGHT + 46, CARD_WIDTH - 4, 18),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             meta,
         )
@@ -299,19 +349,42 @@ class MediaCard(QWidget):
 
     hoverProgress = Property(float, _get_hover_progress, _set_hover_progress)
 
+    def _get_click_progress(self) -> float:
+        return self._click_progress
+
+    def _set_click_progress(self, value: float) -> None:
+        self._click_progress = value
+        self.update()
+
+    clickProgress = Property(float, _get_click_progress, _set_click_progress)
+
+    def _activate(self) -> None:
+        if (
+            not self.data.available
+            or self._click_animation.state() == QPropertyAnimation.State.Running
+        ):
+            return
+        self._click_pending = True
+        self._click_animation.setStartValue(self._click_progress)
+        self._click_animation.start()
+
+    def _finish_click(self) -> None:
+        if self._click_pending:
+            self._click_pending = False
+            self.playRequested.emit(self.data.media_id)
+
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self.rect().contains(event.position().toPoint())
             and self.data.available
         ):
-            self.playRequested.emit(self.data.media_id)
+            self._activate()
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
-            if self.data.available:
-                self.playRequested.emit(self.data.media_id)
+            self._activate()
             return
         super().keyPressEvent(event)
 
@@ -324,6 +397,7 @@ class MediaCard(QWidget):
         menu.addSeparator()
         reveal = menu.addAction("Show in Explorer")
         remove = menu.addAction("Remove from library")
+        delete = menu.addAction("Delete file")
 
         chosen = menu.exec(event.globalPos())
         if chosen is play:
@@ -334,6 +408,8 @@ class MediaCard(QWidget):
             self.revealRequested.emit(self.data.media_id)
         elif chosen is remove:
             self.removeRequested.emit(self.data.media_id)
+        elif chosen is delete:
+            self.deleteRequested.emit(self.data.media_id)
 
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(CARD_WIDTH, CARD_HEIGHT)

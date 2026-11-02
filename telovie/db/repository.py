@@ -37,6 +37,7 @@ class Preferences:
     volume: int
     last_library_root: str | None
     scan_recursive: bool
+    total_watch_time_ms: int
 
     @property
     def audio_langs(self) -> list[str]:
@@ -330,7 +331,34 @@ class PreferencesRepository:
             volume=int(row["Volume"]),
             last_library_root=row["LastLibraryRoot"],
             scan_recursive=bool(row["ScanRecursive"]),
+            total_watch_time_ms=int(row["TotalWatchTimeMs"]),
         )
+
+    def watched_time_ms(self) -> int:
+        row = self.conn.execute(
+            """
+            SELECT COALESCE(SUM(m.TotalDuration), 0)
+                   + (SELECT TotalWatchTimeMs FROM Preferences WHERE id = 1)
+              FROM MediaLibrary m
+              JOIN PlaybackState p ON p.MediaID = m.id
+             WHERE p.IsCompleted = 1
+            """
+        ).fetchone()
+        return int(row[0])
+
+    def add_watch_time_ms(self, delta_ms: int) -> int:
+        delta = max(0, int(delta_ms))
+        if delta:
+            with self.conn:
+                self.conn.execute(
+                    """
+                    UPDATE Preferences
+                       SET TotalWatchTimeMs = TotalWatchTimeMs + ?
+                     WHERE id = 1
+                    """,
+                    (delta,),
+                )
+        return self.watched_time_ms()
 
     def update(
         self,

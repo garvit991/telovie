@@ -225,6 +225,21 @@ class IconButton(QAbstractButton):
         paint_icon(painter, self._kind, rect, color)
 
 
+class SeekButton(IconButton):
+    """A fixed-step seek control for the player transport bar."""
+
+    def __init__(self, direction: str, parent=None) -> None:
+        tooltips = {
+            "rewind": "Rewind 10 seconds (Left)",
+            "skip": "Skip 10 seconds (Right)",
+        }
+        try:
+            tooltip = tooltips[direction]
+        except KeyError as exc:
+            raise ValueError(f"unsupported seek direction: {direction}") from exc
+        super().__init__(direction, tooltip, size=34, icon_size=20, parent=parent)
+
+
 class VolumeSlider(QSlider):
     """Thin 0-100 slider; the groove/handle are styled in the app stylesheet."""
 

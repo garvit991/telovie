@@ -1,4 +1,4 @@
-from telovie.ui.controls import IconButton, SeekSlider, VolumeSlider
+from telovie.ui.controls import IconButton, SeekButton, SeekSlider, VolumeSlider
 from telovie.ui.media_card import CardData, MediaCard
 from telovie.ui.player_view import PlayerView
 from telovie.ui.theme import APP_QSS
@@ -9,6 +9,7 @@ __all__ = [
     "IconButton",
     "MediaCard",
     "PlayerView",
+    "SeekButton",
     "SeekSlider",
     "VolumeSlider",
 ]

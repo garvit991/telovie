@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
 from PySide6.QtGui import QImage  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
@@ -16,7 +17,12 @@ from PySide6.QtWidgets import (  # noqa: E402
 )
 
 from telovie.ui.library_view import LibraryView  # noqa: E402
-from telovie.ui.media_card import CardData, MediaCard  # noqa: E402
+from telovie.ui.theme import ACCENT  # noqa: E402
+from telovie.ui.media_card import (
+    CardData,
+    MediaCard,
+    _wrapped_title_lines,
+)  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -35,6 +41,8 @@ def view(qapp, tmp_path: Path) -> LibraryView:
 def test_top_bar_shows_no_folder_path(view: LibraryView):
     assert view.findChild(QLabel, "LibraryPath") is None
     assert not hasattr(view, "path_label")
+    view.set_watched_time(142 * 3_600_000)
+    assert view.watch_stat.text() == "142 hours watched"
 
 
 def test_empty_state_names_no_absolute_path(view: LibraryView, tmp_path: Path):
@@ -92,11 +100,13 @@ def test_homepage_sections_and_nested_collection_navigation(view: LibraryView, t
     assert show_folder.text() == "Example Show\n2 contents"
 
     show_folder.click()
+    QTest.qWait(220)
     season_folder = view.container.findChild(QToolButton, "FolderCard")
     assert season_folder is not None
     assert season_folder.text() == "Season 1\n2 contents"
 
     season_folder.click()
+    QTest.qWait(220)
     assert view.folder_flow.count() == 2
 
 
@@ -132,6 +142,23 @@ def test_folder_navigation_has_a_hover_transition(view: LibraryView, tmp_path: P
     folder_card = view.container.findChild(QToolButton, "FolderCard")
     assert folder_card is not None
     assert isinstance(folder_card.graphicsEffect(), QGraphicsOpacityEffect)
+    icon = folder_card.icon().pixmap(48, 48).toImage()
+    assert icon.pixelColor(24, 24).name().lower() == ACCENT
+
+
+def test_media_titles_wrap_to_two_lines_and_elide_the_remainder(qapp):
+    from PySide6.QtGui import QFont, QFontMetrics
+
+    metrics = QFontMetrics(QFont("Segoe UI Variable Text", 10))
+    lines = _wrapped_title_lines(
+        "A Very Long Episode Title With More Words Than Can Fit", metrics, 110
+    )
+
+    assert len(lines) == 2
+    assert lines[-1].endswith("…")
+    assert all(metrics.horizontalAdvance(line) <= 110 for line in lines)
+    long_word = _wrapped_title_lines("A" * 100, metrics, 110)
+    assert metrics.horizontalAdvance(long_word[0]) <= 110
 
 
 def test_media_card_exposes_animated_hover_progress(qapp):
@@ -141,4 +168,28 @@ def test_media_card_exposes_animated_hover_progress(qapp):
     card.setProperty("hoverProgress", 0.5)
     assert card.property("hoverProgress") == 0.5
 
+    card.deleteLater()
+
+
+def test_media_card_waits_for_click_animation_before_play(qapp):
+    card = MediaCard(CardData(9, "Episode", 1_000_000, 10, 0, False, True, ""))
+    played: list[int] = []
+    card.playRequested.connect(played.append)
+
+    card._activate()
+    assert played == []
+    QTest.qWait(220)
+    assert played == [9]
+
+    card.deleteLater()
+
+
+def test_media_card_paints_placeholder_before_thumbnail_arrives(qapp):
+    card = MediaCard(CardData(1, "Episode", 1_000_000, 10, 0, False, True, ""))
+    image = QImage(card.size(), QImage.Format.Format_ARGB32)
+    image.fill(0)
+
+    card.render(image)
+
+    assert image.pixelColor(10, 10).alpha() > 0
     card.deleteLater()

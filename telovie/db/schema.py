@@ -1,7 +1,7 @@
 """SQLite schema and migration runner.
 
-Version 1 is the only schema so far. Future changes append to MIGRATIONS and
-bump SCHEMA_VERSION; `migrate()` applies them in order inside one transaction.
+Future changes append to MIGRATIONS and bump SCHEMA_VERSION; `migrate()` applies
+them in order and records the result in ``PRAGMA user_version``.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DDL_V1 = """
 CREATE TABLE IF NOT EXISTS MediaLibrary (
@@ -53,7 +53,12 @@ CREATE TABLE IF NOT EXISTS Preferences (
 INSERT OR IGNORE INTO Preferences (id) VALUES (1);
 """
 
-MIGRATIONS: dict[int, str] = {1: DDL_V1}
+DDL_V2 = """
+ALTER TABLE Preferences
+    ADD COLUMN TotalWatchTimeMs INTEGER NOT NULL DEFAULT 0;
+"""
+
+MIGRATIONS: dict[int, str] = {1: DDL_V1, 2: DDL_V2}
 
 
 def connect(db_path: str | Path) -> sqlite3.Connection:

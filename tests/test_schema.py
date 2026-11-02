@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from telovie.db.schema import SCHEMA_VERSION, connect, migrate
+from telovie.db.schema import DDL_V1, SCHEMA_VERSION, connect, migrate
 
 
 def test_migrate_creates_schema(tmp_path):
@@ -33,6 +33,7 @@ def test_migrate_creates_schema(tmp_path):
         assert prefs["DefaultAudioLang"] == "eng"
         assert prefs["DefaultSubLang"] == ""
         assert prefs["Volume"] == 80
+        assert prefs["TotalWatchTimeMs"] == 0
 
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert conn.execute("PRAGMA journal_mode").fetchone()[0].lower() == "wal"
@@ -52,5 +53,21 @@ def test_unique_path_is_case_insensitive(tmp_path):
             conn.execute(
                 "INSERT INTO MediaLibrary (Title, FilePath) VALUES ('B', 'c:/media/file.mkv')"
             )
+    finally:
+        conn.close()
+
+
+def test_v1_database_migrates_watch_time_without_losing_preferences(tmp_path):
+    conn = connect(tmp_path / "v1.db")
+    try:
+        conn.executescript(DDL_V1)
+        conn.execute("UPDATE Preferences SET Volume = 47 WHERE id = 1")
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+
+        assert migrate(conn) == 2
+        prefs = conn.execute("SELECT * FROM Preferences WHERE id = 1").fetchone()
+        assert prefs["Volume"] == 47
+        assert prefs["TotalWatchTimeMs"] == 0
     finally:
         conn.close()

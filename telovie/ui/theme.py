@@ -37,6 +37,7 @@ QLabel#SectionTitle {{ font-family: "Segoe UI Variable Display", "Segoe UI";
                        font-size: 19px; font-weight: 600; }}
 QLabel#SectionHint {{ color: {MUTED}; font-size: 12px; }}
 QLabel#Breadcrumb {{ color: {MUTED}; font-size: 12px; }}
+QLabel#WatchStat {{ color: {MUTED}; font-size: 12px; }}
 QLabel#EmptyTitle {{ font-family: "Segoe UI Variable Display", "Segoe UI";
                      font-size: 20px; font-weight: 600; }}
 QLabel#EmptyHint {{ color: {MUTED}; font-size: 12px; }}

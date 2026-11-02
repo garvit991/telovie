@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -29,7 +31,7 @@ from telovie.ui.library_view import LibraryView
 from telovie.ui.media_card import CardData
 from telovie.ui.player_view import PlayerView
 from telovie.ui.preferences_dialog import PreferencesDialog
-from telovie.ui.theme import APP_QSS
+from telovie.ui.theme import APP_QSS, APP_QSS_OPAQUE, enable_acrylic_backdrop
 from telovie.ui.thumbnail_service import ThumbnailService
 from telovie.ui.toast import Toast
 from telovie.util.timefmt import format_ms
@@ -60,6 +62,7 @@ class MainWindow(QMainWindow):
         self._thumbnails = ThumbnailService(paths.data_dir / "thumbnails", self)
         self._thumbnails.thumbnailReady.connect(self.view.set_thumbnail)
         self.player = PlayerView(PlayerController(self), self)
+        self.player.controller.set_watch_time_store(self.db.prefs)
         self.stack = QStackedWidget(self)
         self.stack.addWidget(self.view)
         self.stack.addWidget(self.player)
@@ -93,12 +96,16 @@ class MainWindow(QMainWindow):
         self.view.startOverRequested.connect(self._on_start_over)
         self.view.revealRequested.connect(self._on_reveal)
         self.view.removeRequested.connect(self._on_remove)
+        self.view.deleteRequested.connect(self._on_delete_file)
         self.view.openFolderRequested.connect(self._open_folder)
         self.view.refreshRequested.connect(self.start_scan)
         self.view.preferencesRequested.connect(self._open_preferences)
         self.view.filtersChanged.connect(lambda *_: self.refresh_grid())
 
         self.player.controller.resumeRequested.connect(self._on_resume_requested)
+        self.player.controller.watchTimeChanged.connect(
+            self.view.set_watched_time
+        )
         self.player.controller.errorOccurred.connect(self._on_playback_error)
         self.player.backRequested.connect(self._on_player_back)
         self.player.preferencesRequested.connect(self._open_preferences)
@@ -265,6 +272,7 @@ class MainWindow(QMainWindow):
         )
         self.view.set_library_items(cards, continue_cards)
         self._thumbnails.request([card.file_path for card in cards])
+        self.view.set_watched_time(self.db.prefs.watched_time_ms())
 
         total = self.db.library.count()
         if search:
@@ -447,6 +455,53 @@ class MainWindow(QMainWindow):
             self.db.library.remove(media_id)
             self.refresh_grid()
             self._toast.show_message("Removed from library.")
+
+    def _on_delete_file(self, media_id: int) -> None:
+        row = self.db.library.get(media_id)
+        if row is None:
+            return
+        file_path = Path(row["FilePath"])
+        if file_path.suffix.casefold() != ".mkv":
+            QMessageBox.critical(
+                self,
+                "Cannot delete file",
+                "Only MKV files can be deleted from the library.",
+            )
+            return
+        answer = QMessageBox.question(
+            self,
+            "Delete file",
+            f"Permanently delete “{row['Title']}” from disk?\n\n"
+            "This also removes it from the library and cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            os.remove(file_path)
+        except OSError as exc:
+            log.exception("Could not delete media file %s", file_path)
+            QMessageBox.critical(
+                self,
+                "Could not delete file",
+                f"The file could not be deleted:\n\n{exc}",
+            )
+            return
+        try:
+            self.db.library.remove(media_id)
+        except sqlite3.Error as exc:
+            log.exception("File deleted but library record could not be removed")
+            QMessageBox.critical(
+                self,
+                "Library update failed",
+                "The file was deleted, but its library record could not be "
+                f"removed:\n\n{exc}",
+            )
+            self.refresh_grid()
+            return
+        self.refresh_grid()
+        self._toast.show_message("File deleted.")
 
     def _open_folder(self) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.paths.library_dir)))
