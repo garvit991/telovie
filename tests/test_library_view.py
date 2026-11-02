@@ -6,7 +6,12 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication,
+    QGraphicsOpacityEffect,
+    QLabel,
+    QToolButton,
+)
 
 from telovie.ui.library_view import LibraryView  # noqa: E402
 from telovie.ui.media_card import CardData, MediaCard  # noqa: E402
@@ -91,3 +96,23 @@ def test_homepage_sections_and_nested_collection_navigation(view: LibraryView, t
 
     season_folder.click()
     assert view.folder_flow.count() == 2
+
+
+def test_folder_navigation_has_a_hover_transition(view: LibraryView, tmp_path: Path):
+    episode = tmp_path / "Example Show" / "Season 1" / "S01E01.mkv"
+    card = CardData(1, "Episode 1", 1_000_000, 10, 0, False, True, str(episode))
+    view.set_library_items([card], [])
+
+    folder_card = view.container.findChild(QToolButton, "FolderCard")
+    assert folder_card is not None
+    assert isinstance(folder_card.graphicsEffect(), QGraphicsOpacityEffect)
+
+
+def test_media_card_exposes_animated_hover_progress(qapp):
+    card = MediaCard(CardData(1, "Episode", 1_000_000, 10, 0, False, True, ""))
+
+    assert card.metaObject().indexOfProperty("hoverProgress") >= 0
+    card.setProperty("hoverProgress", 0.5)
+    assert card.property("hoverProgress") == 0.5
+
+    card.deleteLater()

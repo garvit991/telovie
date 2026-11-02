@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSettings, QTimer, QUrl
+from PySide6.QtCore import QEvent, QSettings, QTimer, QUrl, Qt
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QLabel,
@@ -28,7 +29,7 @@ from telovie.ui.library_view import LibraryView
 from telovie.ui.media_card import CardData
 from telovie.ui.player_view import PlayerView
 from telovie.ui.preferences_dialog import PreferencesDialog
-from telovie.ui.theme import APP_QSS
+from telovie.ui.theme import APP_QSS, APP_QSS_OPAQUE, enable_acrylic_backdrop
 from telovie.ui.toast import Toast
 from telovie.util.timefmt import format_ms
 
@@ -48,6 +49,8 @@ class MainWindow(QMainWindow):
         self._handling_playback_error = False
 
         self.setWindowTitle(APP_NAME)
+        if sys.platform == "win32":
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMinimumSize(900, 600)
         self.resize(1200, 780)
         self.setStyleSheet(APP_QSS)
@@ -107,6 +110,11 @@ class MainWindow(QMainWindow):
         geometry = self._settings.value("window/geometry")
         if geometry:
             self.restoreGeometry(geometry)
+
+        if sys.platform == "win32" and not enable_acrylic_backdrop(int(self.winId())):
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.setStyleSheet(APP_QSS_OPAQUE)
+            log.debug("Windows acrylic backdrop is unavailable")
 
         QTimer.singleShot(0, self._startup)
 
