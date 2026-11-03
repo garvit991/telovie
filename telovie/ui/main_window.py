@@ -31,7 +31,7 @@ from telovie.ui.library_view import LibraryView
 from telovie.ui.media_card import CardData
 from telovie.ui.player_view import PlayerView
 from telovie.ui.preferences_dialog import PreferencesDialog
-from telovie.ui.theme import APP_QSS, APP_QSS_OPAQUE, enable_acrylic_backdrop
+from telovie.ui.theme import APP_QSS, enable_acrylic_backdrop
 from telovie.ui.thumbnail_service import ThumbnailService
 from telovie.ui.toast import Toast
 from telovie.util.timefmt import format_ms
@@ -52,8 +52,7 @@ class MainWindow(QMainWindow):
         self._handling_playback_error = False
 
         self.setWindowTitle(APP_NAME)
-        if sys.platform == "win32":
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setMinimumSize(900, 600)
         self.resize(1200, 780)
         self.setStyleSheet(APP_QSS)
@@ -64,6 +63,7 @@ class MainWindow(QMainWindow):
         self.player = PlayerView(PlayerController(self), self)
         self.player.controller.set_watch_time_store(self.db.prefs)
         self.stack = QStackedWidget(self)
+        self.stack.setObjectName("CentralStack")
         self.stack.addWidget(self.view)
         self.stack.addWidget(self.player)
         self.setCentralWidget(self.stack)
@@ -121,10 +121,13 @@ class MainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
 
-        if sys.platform == "win32" and not enable_acrylic_backdrop(int(self.winId())):
-            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-            self.setStyleSheet(APP_QSS_OPAQUE)
-            log.debug("Windows acrylic backdrop is unavailable")
+        if sys.platform == "win32":
+            window_id = int(self.winId())
+            if not enable_acrylic_backdrop(window_id):
+                log.warning(
+                    "Windows acrylic backdrop is unavailable; keeping the "
+                    "translucent window background enabled"
+                )
 
         QTimer.singleShot(0, self._startup)
 

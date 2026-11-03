@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 
 from PySide6.QtGui import QColor
 
-BG = "#0f1115"
-SURFACE = "#12151b"
-GLASS_BG = "rgba(15, 17, 21, 184)" if sys.platform == "win32" else BG
-GLASS_SURFACE = "rgba(18, 21, 27, 204)" if sys.platform == "win32" else SURFACE
+log = logging.getLogger(__name__)
+
+BG = "rgba(15, 18, 24, 166)"
+SURFACE = "rgba(18, 21, 27, 166)"
+OPAQUE_BG = "#0f1115"
+OPAQUE_SURFACE = "#12151b"
+GLASS_BG = BG if sys.platform == "win32" else OPAQUE_BG
+GLASS_SURFACE = SURFACE if sys.platform == "win32" else OPAQUE_SURFACE
 SURFACE_ALT = "#1b1f27"
 BORDER = "#2a2f3a"
 BORDER_HOVER = "#3a4150"
@@ -24,6 +29,7 @@ DANGER = "#f85149"
 
 APP_QSS = f"""
 QMainWindow {{ background: {GLASS_BG}; }}
+QStackedWidget#CentralStack {{ background: transparent; }}
 QWidget#LibraryView, QWidget#LibraryStack, QWidget#GridCanvas,
 QWidget#EmptyPane {{ background: transparent; }}
 QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; border: none; }}
@@ -42,7 +48,7 @@ QLabel#EmptyTitle {{ font-family: "Segoe UI Variable Display", "Segoe UI";
                      font-size: 20px; font-weight: 600; }}
 QLabel#EmptyHint {{ color: {MUTED}; font-size: 12px; }}
 
-QToolButton#FolderCard {{ background: {SURFACE}; border: 1px solid {BORDER};
+QToolButton#FolderCard {{ background: {OPAQUE_SURFACE}; border: 1px solid {BORDER};
                           border-radius: 10px; padding: 10px; text-align: center;
                           font-weight: 600; }}
 QToolButton#FolderCard:hover {{ background: {SURFACE_ALT};
@@ -117,9 +123,6 @@ QSlider#Volume::handle:horizontal:hover {{ background: #ffffff; }}
 QLabel#Toast {{ background: #1e2430; border: 1px solid #2f3a4c; border-radius: 8px;
                 padding: 8px 14px; color: {TEXT}; }}
 """
-APP_QSS_OPAQUE = APP_QSS.replace(GLASS_BG, BG).replace(GLASS_SURFACE, SURFACE)
-
-
 def gradient_colors(seed: str) -> tuple[QColor, QColor]:
     """Stable, muted two-stop gradient derived from the title."""
     value = 0
@@ -139,11 +142,41 @@ def enable_acrylic_backdrop(window_id: int) -> bool:
     import ctypes
     from ctypes import wintypes
 
-    backdrop_type = ctypes.c_int(3)  # DWMSBT_TRANSIENTWINDOW
-    result = ctypes.windll.dwmapi.DwmSetWindowAttribute(  # type: ignore[attr-defined]
+    dwm_set_window_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute  # type: ignore[attr-defined]
+    dwm_set_window_attribute.argtypes = (
+        wintypes.HWND,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    )
+    dwm_set_window_attribute.restype = ctypes.c_long
+
+    DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+    DWMWA_SYSTEMBACKDROP_TYPE = 38
+    dark_mode = ctypes.c_int(1)
+    dark_mode_result = dwm_set_window_attribute(
         wintypes.HWND(window_id),
-        38,  # DWMWA_SYSTEMBACKDROP_TYPE
+        DWMWA_USE_IMMERSIVE_DARK_MODE,
+        ctypes.byref(dark_mode),
+        ctypes.sizeof(dark_mode),
+    )
+    if dark_mode_result != 0:
+        log.warning(
+            "Windows did not enable dark mode for the acrylic backdrop (HRESULT 0x%08X)",
+            dark_mode_result & 0xFFFFFFFF,
+        )
+
+    backdrop_type = ctypes.c_int(3)  # DWMSBT_TRANSIENTWINDOW
+    result = dwm_set_window_attribute(
+        wintypes.HWND(window_id),
+        DWMWA_SYSTEMBACKDROP_TYPE,
         ctypes.byref(backdrop_type),
         ctypes.sizeof(backdrop_type),
     )
-    return result == 0
+    if result != 0:
+        log.warning(
+            "Windows did not enable the acrylic system backdrop (HRESULT 0x%08X)",
+            result & 0xFFFFFFFF,
+        )
+        return False
+    return True
