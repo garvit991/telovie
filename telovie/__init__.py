@@ -1,3 +1,3 @@
-"""Telovie — local MKV library and player."""
+"""Telovie — local video library and player."""
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
