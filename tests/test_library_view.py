@@ -6,14 +6,16 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
+from PySide6.QtCore import QEvent  # noqa: E402
 from PySide6.QtGui import QImage  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
+    QFrame,
     QGraphicsOpacityEffect,
     QLabel,
     QToolButton,
+    QWidget,
 )
 
 from telovie.ui.library_view import LibraryView  # noqa: E402
@@ -43,6 +45,58 @@ def test_top_bar_shows_no_folder_path(view: LibraryView):
     assert not hasattr(view, "path_label")
     view.set_watched_time(142 * 3_600_000)
     assert view.watch_stat.text() == "142 hours watched"
+    assert view.stats_sidebar.isAncestorOf(view.watch_stat)
+
+
+def test_sort_filters_are_embedded_in_search_menu(view: LibraryView):
+    menu = view.sort_menu_button.menu()
+    assert menu is not None
+    assert [action.text() for action in menu.actions()] == [
+        "Title A–Z",
+        "Recently added",
+        "Duration",
+        "Progress",
+    ]
+
+    changed: list[tuple[str, str]] = []
+    view.filtersChanged.connect(lambda search, sort: changed.append((search, sort)))
+    view._sort_actions["duration"].trigger()
+
+    assert view.current_filters() == ("", "duration")
+    assert changed == [("", "duration")]
+
+
+def test_search_field_is_centered_in_top_bar(view: LibraryView, qapp):
+    view.resize(1200, 700)
+    view.show()
+    qapp.processEvents()
+    top_bar = view.findChild(QWidget, "TopBar")
+    search_box = view.findChild(QFrame, "SearchBox")
+    assert top_bar is not None
+    assert search_box is not None
+    assert abs(search_box.geometry().center().x() - top_bar.width() // 2) <= 1
+
+
+def test_stats_sidebar_opens_at_right_edge_and_closes_when_pointer_leaves(
+    view: LibraryView, qapp
+):
+    view.resize(1200, 700)
+    view.show()
+    qapp.processEvents()
+    assert view.stats_sidebar.isHidden()
+
+    QTest.mouseMove(view, view.rect().center())
+    qapp.sendEvent(view.stats_edge, QEvent(QEvent.Type.Enter))
+    assert view.stats_sidebar.isVisible()
+
+    QTest.mouseMove(view.stats_sidebar, view.stats_sidebar.rect().center())
+    QTest.qWait(240)
+    assert view.stats_sidebar.isVisible()
+
+    QTest.mouseMove(view, view.rect().center())
+    qapp.sendEvent(view.stats_sidebar, QEvent(QEvent.Type.Leave))
+    QTest.qWait(240)
+    assert view.stats_sidebar.isHidden()
 
 
 def test_empty_state_names_no_absolute_path(view: LibraryView, tmp_path: Path):

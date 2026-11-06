@@ -86,6 +86,55 @@ def test_player_exposes_combined_track_menu_and_seek_controls():
     controller.close()
 
 
+def test_player_episode_buttons_emit_navigation_requests():
+    _app()
+    controller = PlayerController()
+    view = PlayerView(controller)
+    previous: list[bool] = []
+    following: list[bool] = []
+    view.previousEpisodeRequested.connect(lambda: previous.append(True))
+    view.nextEpisodeRequested.connect(lambda: following.append(True))
+
+    view.set_episode_navigation(True, False)
+    assert view.previous_episode_button.isEnabled()
+    assert not view.next_episode_button.isEnabled()
+    view.previous_episode_button.click()
+    assert previous == [True]
+
+    view.set_episode_navigation(True, True)
+    view.next_episode_button.click()
+    assert following == [True]
+    view.close()
+    controller.close()
+
+
+def test_main_window_episode_navigation_plays_adjacent_episode(
+    tmp_path: Path, monkeypatch
+):
+    window, database = _window(tmp_path)
+    try:
+        show = window.paths.library_dir / "Example Show" / "Season 1"
+        paths = [show / f"S01E0{number}.mkv" for number in range(1, 4)]
+        database.library.upsert_many(
+            [MediaUpsert(path.stem, str(path)) for path in paths]
+        )
+        ids = [
+            int(database.library.find_by_path(str(path))["id"])
+            for path in paths
+        ]
+        played: list[int] = []
+        monkeypatch.setattr(window, "_on_play_requested", played.append)
+        window._current_media_id = ids[1]
+
+        window._play_previous_episode()
+        window._play_next_episode()
+
+        assert played == [ids[0], ids[2]]
+    finally:
+        window.close()
+        database.close()
+
+
 def test_controller_accumulates_only_elapsed_play_time(tmp_path: Path, monkeypatch):
     _app()
     database = Database(tmp_path / "watch-time.db")

@@ -18,6 +18,8 @@ DEFAULT_SUB_LANGS = ""
 DEFAULT_VOLUME = 80
 
 MKV_SUFFIX = ".mkv"
+MEDIA_SUFFIXES = frozenset({".mkv", ".mp4", ".mov", ".webm"})
+ISOBMFF_SUFFIXES = frozenset({".mp4", ".mov"})
 
 # Resume / completion thresholds (milliseconds unless noted)
 PROGRESS_SAVE_INTERVAL_MS = 5_000

@@ -19,13 +19,14 @@ from PySide6.QtWidgets import (
     QStatusBar,
 )
 
-from telovie.config import APP_NAME, AppPaths
+from telovie.config import APP_NAME, MEDIA_SUFFIXES, AppPaths
 from telovie.db import Database, MediaUpsert
-from telovie.library.episodes import next_episode_recommendations
+from telovie.library.episodes import episode_neighbors, next_episode_recommendations
 from telovie.library.models import ScanSummary
 from telovie.library.scanner import ScanWorker
 from telovie.library.watcher import LibraryWatcher
-from telovie.mkv.parser import display_title, parse_mkv
+from telovie.mkv.parser import display_title
+from telovie.media import parse_media
 from telovie.playback.controller import PlayerController
 from telovie.ui.library_view import LibraryView
 from telovie.ui.media_card import CardData
@@ -52,7 +53,7 @@ class MainWindow(QMainWindow):
         self._handling_playback_error = False
 
         self.setWindowTitle(APP_NAME)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMinimumSize(900, 600)
         self.resize(1200, 780)
         self.setStyleSheet(APP_QSS)
@@ -102,6 +103,8 @@ class MainWindow(QMainWindow):
         self.view.preferencesRequested.connect(self._open_preferences)
         self.view.filtersChanged.connect(lambda *_: self.refresh_grid())
 
+        self.player.previousEpisodeRequested.connect(self._play_previous_episode)
+        self.player.nextEpisodeRequested.connect(self._play_next_episode)
         self.player.controller.resumeRequested.connect(self._on_resume_requested)
         self.player.controller.watchTimeChanged.connect(
             self.view.set_watched_time
@@ -218,7 +221,7 @@ class MainWindow(QMainWindow):
             self._toast.show_message(message)
         if summary.total == 0:
             self._set_status(
-                "Library is empty — drop .mkv files into the library folder"
+                "Library is empty — drop MKV, MP4, MOV, or WebM files into the library folder"
             )
 
         if self._scan_queued:
@@ -299,6 +302,12 @@ class MainWindow(QMainWindow):
         if not row["IsAvailable"]:
             self.start_scan()
         self._current_media_id = int(media_id)
+        previous_id, next_id = episode_neighbors(
+            self.db.library.list_for_grid(), media_id, self.paths.library_dir
+        )
+        self.player.set_episode_navigation(
+            previous_id is not None, next_id is not None
+        )
         self._handling_playback_error = False
         self.stack.setCurrentWidget(self.player)
         self.statusBar().setVisible(False)
@@ -307,7 +316,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{APP_NAME} — {row['Title']}")
         self.player.controller.set_progress_store(self.db.playback, int(media_id))
         preferences = self.db.prefs.get()
-        media_info = parse_mkv(row["FilePath"])
+        media_info = parse_media(row["FilePath"])
         if media_info.error:
             log.warning(
                 "Could not read track metadata for %s: %s",
@@ -326,6 +335,7 @@ class MainWindow(QMainWindow):
 
     def _on_player_back(self) -> None:
         self.player.stop_and_release()
+        self.player.set_episode_navigation(False, False)
         self._current_media_id = None
         self._handling_playback_error = False
         self.stack.setCurrentWidget(self.view)
@@ -336,6 +346,23 @@ class MainWindow(QMainWindow):
         self.refresh_grid()
         self._thumbnails.resume()
         self.view.focus_library()
+
+    def _play_previous_episode(self) -> None:
+        self._play_adjacent_episode(previous=True)
+
+    def _play_next_episode(self) -> None:
+        self._play_adjacent_episode(previous=False)
+
+    def _play_adjacent_episode(self, *, previous: bool) -> None:
+        if self._current_media_id is None:
+            return
+        previous_id, next_id = episode_neighbors(
+            self.db.library.list_for_grid(), self._current_media_id,
+            self.paths.library_dir,
+        )
+        media_id = previous_id if previous else next_id
+        if media_id is not None:
+            self._on_play_requested(media_id)
 
     # -- volume -----------------------------------------------------------
 
@@ -464,11 +491,11 @@ class MainWindow(QMainWindow):
         if row is None:
             return
         file_path = Path(row["FilePath"])
-        if file_path.suffix.casefold() != ".mkv":
+        if file_path.suffix.casefold() not in MEDIA_SUFFIXES:
             QMessageBox.critical(
                 self,
                 "Cannot delete file",
-                "Only MKV files can be deleted from the library.",
+                "Only supported video files can be deleted from the library.",
             )
             return
         answer = QMessageBox.question(

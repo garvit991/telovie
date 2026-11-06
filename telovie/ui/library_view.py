@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import (
     QByteArray,
     QEasingCurve,
+    QEvent,
     QPoint,
     QPropertyAnimation,
     QRect,
@@ -17,11 +18,11 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtGui import QAction, QActionGroup, QCursor, QIcon, QPainter, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
-    QComboBox,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLayout,
@@ -192,6 +193,11 @@ class LibraryView(QWidget):
         self._settings = QSettings("Telovie", "Telovie")
         self._build_ui()
 
+        self._stats_close_timer = QTimer(self)
+        self._stats_close_timer.setSingleShot(True)
+        self._stats_close_timer.setInterval(180)
+        self._stats_close_timer.timeout.connect(self._close_stats_if_pointer_left)
+
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(200)
@@ -206,38 +212,60 @@ class LibraryView(QWidget):
 
         top = QWidget(self)
         top.setObjectName("TopBar")
-        top_layout = QHBoxLayout(top)
+        top_layout = QGridLayout(top)
         top_layout.setContentsMargins(20, 14, 20, 12)
-        top_layout.setSpacing(10)
+        top_layout.setHorizontalSpacing(10)
+        top_layout.setVerticalSpacing(0)
+        top_layout.setColumnMinimumWidth(0, 120)
+        top_layout.setColumnStretch(0, 1)
+        top_layout.setColumnMinimumWidth(2, 120)
+        top_layout.setColumnStretch(2, 1)
 
         title = QLabel("TELOVIE")
         title.setObjectName("AppTitle")
-        top_layout.addWidget(title)
-        top_layout.addStretch(1)
+        top_layout.addWidget(title, 0, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self.watch_stat = QLabel("0 hours watched")
-        self.watch_stat.setObjectName("WatchStat")
-        self.watch_stat.setToolTip(
-            "Completed media duration plus time spent watching in Telovie"
-        )
-        top_layout.addWidget(self.watch_stat)
-
-        self.search = QLineEdit()
+        search_box = QFrame(top)
+        search_box.setObjectName("SearchBox")
+        search_layout = QHBoxLayout(search_box)
+        search_layout.setContentsMargins(10, 2, 4, 2)
+        search_layout.setSpacing(2)
+        self.search = QLineEdit(search_box)
         self.search.setObjectName("Search")
         self.search.setPlaceholderText("Search titles…")
         self.search.setClearButtonEnabled(True)
-        self.search.setMinimumWidth(240)
-        self.search.setMaximumWidth(340)
-        top_layout.addWidget(self.search)
+        search_layout.addWidget(self.search, 1)
 
-        self.sort = QComboBox()
+        self.sort_menu_button = QToolButton(search_box)
+        self.sort_menu_button.setObjectName("SortMenu")
+        self.sort_menu_button.setText("↕")
+        self.sort_menu_button.setToolTip("Sort library")
+        self.sort_menu_button.setAccessibleName("Sort library")
+        self.sort_menu_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sort_menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        search_layout.addWidget(self.sort_menu_button)
+
+        sort_menu = QMenu(self.sort_menu_button)
+        sort_group = QActionGroup(sort_menu)
+        sort_group.setExclusive(True)
+        self._sort_actions: dict[str, QAction] = {}
         for label, key in SORT_OPTIONS:
-            self.sort.addItem(label, key)
+            action = sort_menu.addAction(label)
+            action.setCheckable(True)
+            sort_group.addAction(action)
+            self._sort_actions[key] = action
+            action.triggered.connect(
+                lambda _checked=False, sort_key=key: self._on_sort_selected(sort_key)
+            )
         saved = str(self._settings.value("library/sort", "title"))
-        index = self.sort.findData(saved)
-        if index >= 0:
-            self.sort.setCurrentIndex(index)
-        top_layout.addWidget(self.sort)
+        if saved not in self._sort_actions:
+            saved = "title"
+        self._sort_actions[saved].setChecked(True)
+        self.sort_menu_button.setMenu(sort_menu)
+        self._update_sort_button_label(saved)
+        search_box.setMinimumWidth(240)
+        search_box.setMaximumWidth(340)
+        top_layout.addWidget(search_box, 0, 1, Qt.AlignmentFlag.AlignHCenter)
 
         # Folder actions live behind this so the bar stays quiet.
         self.overflow = QToolButton()
@@ -254,10 +282,13 @@ class LibraryView(QWidget):
         menu.addSeparator()
         self.preferences_action = menu.addAction("Preferences")
         self.overflow.setMenu(menu)
-        top_layout.addWidget(self.overflow)
+        top_layout.addWidget(self.overflow, 0, 2, Qt.AlignmentFlag.AlignRight)
 
         root.addWidget(top)
 
+        content = QHBoxLayout()
+        content.setContentsMargins(0, 0, 0, 0)
+        content.setSpacing(0)
         self.stack = QStackedWidget(self)
         self.stack.setObjectName("LibraryStack")
 
@@ -296,7 +327,6 @@ class LibraryView(QWidget):
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.viewport().setAutoFillBackground(False)
-        self.scroll.viewport().setStyleSheet("background: transparent;")
 
         self.container = QWidget()
         self.container.setObjectName("GridCanvas")
@@ -356,12 +386,49 @@ class LibraryView(QWidget):
 
         self.stack.addWidget(self.empty)
         self.stack.addWidget(self.scroll)
-        root.addWidget(self.stack, 1)
+
+        self.stats_sidebar = QWidget(self)
+        self.stats_sidebar.setObjectName("StatsSidebar")
+        self.stats_sidebar.setFixedWidth(190)
+        stats_layout = QVBoxLayout(self.stats_sidebar)
+        stats_layout.setContentsMargins(14, 24, 14, 24)
+        stats_layout.setSpacing(16)
+        stats_title = QLabel("WATCH TIME")
+        stats_title.setObjectName("StatsTitle")
+        stats_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        stats_layout.addWidget(stats_title)
+        watch_ring = QFrame(self.stats_sidebar)
+        watch_ring.setObjectName("WatchRing")
+        watch_ring.setFixedSize(132, 132)
+        ring_layout = QVBoxLayout(watch_ring)
+        ring_layout.setContentsMargins(10, 10, 10, 10)
+        self.watch_stat = QLabel("0 hours watched", watch_ring)
+        self.watch_stat.setObjectName("WatchStat")
+        self.watch_stat.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.watch_stat.setWordWrap(True)
+        self.watch_stat.setToolTip(
+            "Completed media duration plus time spent watching in Telovie"
+        )
+        ring_layout.addWidget(self.watch_stat)
+        stats_layout.addWidget(watch_ring, 0, Qt.AlignmentFlag.AlignHCenter)
+        stats_layout.addStretch(1)
+
+        content.addWidget(self.stack, 1)
+        root.addLayout(content, 1)
+
+        self.stats_edge = QWidget(self)
+        self.stats_edge.setObjectName("StatsEdge")
+        self.stats_edge.setToolTip("Hover to show watch time")
+        self.stats_edge.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.stats_edge.installEventFilter(self)
+        self.stats_sidebar.installEventFilter(self)
+        self.stats_sidebar.hide()
+        self._position_stats_sidebar()
+        self.stats_edge.raise_()
 
         # signals
         self.search.textChanged.connect(self._on_search_changed)
         self.search.returnPressed.connect(self._emit_filters)
-        self.sort.currentIndexChanged.connect(self._on_sort_changed)
         self.open_action.triggered.connect(self.openFolderRequested)
         self.refresh_action.triggered.connect(self.refreshRequested)
         self.preferences_action.triggered.connect(self.preferencesRequested)
@@ -372,13 +439,59 @@ class LibraryView(QWidget):
     # -- data -------------------------------------------------------------
 
     def current_filters(self) -> tuple[str, str]:
-        return self.search.text().strip(), str(self.sort.currentData())
+        checked = next(
+            key for key, action in self._sort_actions.items() if action.isChecked()
+        )
+        return self.search.text().strip(), checked
 
     def set_watched_time(self, total_ms: int) -> None:
         hours = max(0, int(total_ms)) // 3_600_000
         self.watch_stat.setText(
             f"{hours:,} {'hour' if hours == 1 else 'hours'} watched"
         )
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._position_stats_sidebar()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        if watched in (self.stats_edge, self.stats_sidebar):
+            if event.type() == QEvent.Type.Enter:
+                self._stats_close_timer.stop()
+                if watched is self.stats_edge:
+                    self._position_stats_sidebar()
+                    self.stats_sidebar.show()
+                    self.stats_sidebar.raise_()
+                    self.stats_edge.raise_()
+            elif event.type() == QEvent.Type.Leave:
+                self._stats_close_timer.start()
+        return super().eventFilter(watched, event)
+
+    def _position_stats_sidebar(self) -> None:
+        if not hasattr(self, "stats_sidebar") or not hasattr(self, "stats_edge"):
+            return
+        top = self.findChild(QWidget, "TopBar")
+        top_height = top.height() if top is not None else 0
+        self.stats_sidebar.setGeometry(
+            max(0, self.width() - self.stats_sidebar.width()),
+            top_height,
+            self.stats_sidebar.width(),
+            max(0, self.height() - top_height),
+        )
+        self.stats_edge.setGeometry(
+            max(0, self.width() - 6),
+            top_height,
+            min(6, self.width()),
+            max(0, self.height() - top_height),
+        )
+
+    def _close_stats_if_pointer_left(self) -> None:
+        pointer = QCursor.pos()
+        for widget in (self.stats_edge, self.stats_sidebar):
+            if widget.isVisible() and widget.rect().contains(widget.mapFromGlobal(pointer)):
+                return
+        self.stats_sidebar.hide()
+        self.stats_edge.raise_()
 
     def set_library_items(
         self,
@@ -585,7 +698,7 @@ class LibraryView(QWidget):
         else:
             self.empty_title.setText("Your library is empty")
             self.empty_hint.setText(
-                "Drop .mkv files into your library folder, or extract a show "
+                "Drop MKV, MP4, MOV, or WebM files into your library folder, or extract a show "
                 "folder into it. Subfolders are fine — everything underneath "
                 "is indexed automatically."
             )
@@ -594,9 +707,14 @@ class LibraryView(QWidget):
     def _on_search_changed(self, _text: str) -> None:
         self._search_timer.start()
 
-    def _on_sort_changed(self, _index: int) -> None:
-        self._settings.setValue("library/sort", str(self.sort.currentData()))
+    def _on_sort_selected(self, key: str) -> None:
+        self._settings.setValue("library/sort", key)
+        self._update_sort_button_label(key)
         self._emit_filters()
+
+    def _update_sort_button_label(self, key: str) -> None:
+        label = next(label for label, option_key in SORT_OPTIONS if option_key == key)
+        self.sort_menu_button.setToolTip(f"Sort by {label}")
 
     def _emit_filters(self) -> None:
         self._search_timer.stop()

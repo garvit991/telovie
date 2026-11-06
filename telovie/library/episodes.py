@@ -83,3 +83,36 @@ def next_episode_recommendations(
             recommendations.append(row)
             break
     return recommendations
+
+
+def episode_neighbors(
+    rows: Iterable[object],
+    media_id: int,
+    library_root: str | Path,
+) -> tuple[int | None, int | None]:
+    """Return available previous and next episode IDs for the current episode."""
+    episodes: list[tuple[str, tuple[int, int], str, int]] = []
+    rows = list(rows)
+    for row in rows:
+        if not bool(row["IsAvailable"]):
+            continue
+        path = row["FilePath"]
+        order = episode_order(path)
+        series = _series_key(path, library_root)
+        if order is None or series is None:
+            continue
+        row_id = int(row["id"])
+        episodes.append((series, order, str(path).casefold(), row_id))
+
+    current = next((item for item in episodes if item[3] == media_id), None)
+    if current is None:
+        return None, None
+    series = current[0]
+    ordered = sorted(
+        (item for item in episodes if item[0] == series),
+        key=lambda item: (item[1], item[2]),
+    )
+    index = ordered.index(current)
+    previous_id = ordered[index - 1][3] if index > 0 else None
+    next_id = ordered[index + 1][3] if index + 1 < len(ordered) else None
+    return previous_id, next_id

@@ -1,8 +1,8 @@
-# Telovie — Local MKV Library & Player
+# Telovie — Local Video Library & Player
 
 **Status:** Draft for approval · **Target OS:** Windows 11 · **Last updated:** 2026-10-28
 
-A single-user desktop app that indexes a folder of `.mkv` files, presents a Continue Watching home section and a nested show/season collection browser, plays files in-app with the Qt multimedia stack, remembers where you stopped, and auto-selects your preferred audio/subtitle languages.
+A single-user desktop app that indexes a folder of `.mkv`, `.mp4`, `.mov`, and `.webm` files, presents a Continue Watching home section and a nested show/season collection browser, plays files in-app with the Qt multimedia stack, remembers where you stopped, and auto-selects your preferred audio/subtitle languages.
 
 ---
 
@@ -28,7 +28,7 @@ Qt 6.10 deprecated the Windows Media Foundation backend; it is slated for remova
 
 - Workspace is empty; nothing to preserve.
 - Python **3.15.1** (default) and 3.11 available. PySide6 **6.12.0** supports `>=3.10,<3.16` → use 3.15.1 in a project-local venv.
-- No `ffprobe` / `ffmpeg` / `mkvmerge` / `mpv` on PATH. All metadata must come from Qt or our own MKV header reader.
+- No `ffprobe` / `ffmpeg` / `mkvmerge` / `mpv` on PATH. Scan metadata comes from our own Matroska/WebM and MP4/MOV header readers; Qt remains the play-time fallback.
 - App data will live in `%LOCALAPPDATA%\Telovie\` (`library.db`, `logs\`). Overridable via `TELOVIE_DATA_DIR`.
 
 ### 2.1 Phase 0 probe results (verified against your two samples)
@@ -67,11 +67,12 @@ run.py / __main__.py
    ├── playback.controller ....... QMediaPlayer wrapper, 5 s save timer, resume
    ├── playback.tracks ........... language normalization + track matching
    ├── library.scanner ........... QThread worker: walk + parse, emits batches
-   ├── mkv.parser ................ EBML/MKV header reader (title, duration, tracks)
+   ├── mkv.parser ................ EBML/Matroska header reader (MKV and WebM)
+   ├── isobmff ................... MP4/MOV atom reader (title, duration, tracks)
    └── db.repository ............. SQLite access (main thread only)
 ```
 
-**Threading rule:** `QMediaPlayer`, `QVideoWidget`, and every SQLite write run on the GUI thread. The scanner thread performs **only** file I/O + EBML parsing and emits plain dataclasses; the GUI thread persists them. One SQLite connection, WAL mode, `foreign_keys=ON`.
+**Threading rule:** `QMediaPlayer`, `QVideoWidget`, and every SQLite write run on the GUI thread. The scanner thread performs **only** file I/O + lightweight container parsing and emits plain dataclasses; the GUI thread persists them. One SQLite connection, WAL mode, `foreign_keys=ON`.
 
 ### 3.2 Metadata strategy (important)
 
@@ -79,9 +80,9 @@ Qt exposes per-track info via `QMediaPlayer.audioTracks()` / `subtitleTracks()` 
 
 Therefore:
 
-1. **Scan time** — our own read-only EBML parser reads `Segment/Info/Title`, `Segment/Info/Duration × TimestampScale`, and each `TrackEntry` (`TrackNumber`, `TrackType`, `Language`, `Name`, `CodecID`, `FlagDefault`, `FlagForced`). Bounded read: stop at the first `Cluster`, hard cap 8 MB. This gives instant scans and exact ISO 639-2 tags.
+1. **Scan time** — MKV and WebM use our read-only EBML parser to read `Segment/Info/Title`, `Segment/Info/Duration × TimestampScale`, and each `TrackEntry` (`TrackNumber`, `TrackType`, `Language`, `Name`, `CodecID`, `FlagDefault`, `FlagForced`). MP4 and MOV use a lightweight atom reader for `moov`/`mvhd`/`tkhd`, media handlers, codecs, language, and title metadata; media payloads are skipped. This avoids starting Qt's media decoder during scans. Library display titles continue to use the cleaned filename stem.
 2. **Play time** — Qt's track lists drive `setActiveAudioTrack()` / `setActiveSubtitleTrack()`; our parsed track list is the **language oracle** used to resolve the right Qt index, matched by ordinal position within each track type and cross-checked against Qt's own language when Qt reports one.
-3. **Fallback** — if the EBML parse fails (corrupt/truncated file), we fall back to Qt's `QMediaMetaData` at load time, and to filename-as-title with unknown duration. Nothing crashes; the card still opens.
+3. **Fallback** — if container parsing fails (corrupt/truncated or unsupported metadata), the filename supplies the title and unknown duration is retained; Qt's `QMediaMetaData` and live track lists remain the play-time fallback. Nothing crashes; the card still opens.
 
 Phase 0 validates this mapping against real files before any UI is built.
 
@@ -221,9 +222,9 @@ INSERT OR IGNORE INTO Preferences (id) VALUES (1);
 
 1. Root is **fixed**: `%USERPROFILE%\Videos\Telovie` (override with `TELOVIE_LIBRARY_DIR`), created on first launch. No folder picker, no root preference.
 2. Recursive walk with `os.scandir`, `followlinks=False`, skipping `System Volume Information`, `$RECYCLE.BIN`, and dotfolders.
-3. Accept files whose suffix is `.mkv` (case-insensitive). Everything else ignored.
+3. Accept files whose suffix is `.mkv`, `.mp4`, `.mov`, or `.webm` (case-insensitive). Everything else, including `.avi`, is ignored.
 4. Per file: `stat` → if `(size, mtime)` unchanged and row exists, skip parsing entirely.
-5. Parse header → title (MKV `Info/Title`, else filename stem), duration, track list.
+5. Parse the container header → title metadata, duration, and track list; derive the library display title from the cleaned filename stem. WebM uses the Matroska parser; MP4/MOV use the ISOBMFF atom reader.
 6. Upsert in batches of 100; unseen rows **under the scanned root** become `IsAvailable=0` (never deleted, so progress survives a detached drive).
 7. No modal progress dialog: a status label shows "Indexing 412 / 1,203" and the grid fills as batches arrive. A `QTimer` polls file size/mtime every 3 s; after two stable snapshots (~6 s) it triggers an incremental scan, so extracting a zip updates the grid without a button press. Window focus also triggers a check.
 8. Errors per file are logged and counted, never fatal. Summary toast: "Added 12, updated 3, unavailable 2".
@@ -334,7 +335,7 @@ Each phase ends with a **stop-and-report**: I summarize files added, show how to
 
 ## 8. Testing strategy
 
-- **pytest, headless:** schema/migrations, repository CRUD, language normalization, EBML parsing on synthetic fixtures, resume rules, track matching. These are the majority of tests and need no media.
+- **pytest, headless:** schema/migrations, repository CRUD, language normalization, EBML and ISOBMFF parsing on synthetic fixtures, resume rules, track matching. These are the majority of tests and need no media.
 - **Manual checklist per phase** (written into `README.md`): the acceptance criteria above, run against 3 sample files you provide (single-audio, dual-audio JPN/ENG, multi-subtitle).
 - **Offscreen smoke test:** `QT_QPA_PLATFORM=offscreen` import + window construction, so CI-style checks catch broken signals.
 - **No GUI automation** in v1 — not worth the maintenance for a single-user app.
@@ -364,7 +365,7 @@ Transcoding, casting, streaming, thumbnail extraction (deferred per D4), externa
 ## 11. Assumptions to confirm at approval
 
 1. **Fixed library root.** `%USERPROFILE%\Videos\Telovie`, created automatically; override only via `TELOVIE_LIBRARY_DIR` (used for tests). Files outside it are never indexed.
-2. **MKV only.** `.mp4`/`.avi` are ignored, not indexed.
+2. **Supported containers.** MKV, MP4, MOV, and WebM are indexed; `.avi` and other unsupported formats are ignored.
 3. **`Preferences` stays a single-row typed table** (your column names) rather than a key/value store — adding a setting later needs a migration. Say the word and I'll switch to key/value.
 4. **Per-file memory beats language preferences.** A saved track index always wins; language matching only runs for files you have never manually adjusted. If neither applies, subtitles stay off rather than showing the container's default subtitle.
 5. **Replaying a completed item** resets it to in-progress only after 10 s of playback, so the "Watched" badge isn't lost by a mis-click.

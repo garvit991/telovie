@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from telovie.mkv.parser import display_title, parse_mkv, prettify_title
+from telovie.media import parse_media
 
 SAMPLES = Path(__file__).resolve().parent.parent / "sample files"
 
@@ -116,6 +117,16 @@ def test_unknown_segment_size_is_handled(tmp_path: Path):
     info = parse_mkv(path)
     assert info.error is None
     assert info.duration_ms == 1_234_500
+
+
+def test_webm_dispatches_to_the_matroska_parser(tmp_path: Path):
+    path = tmp_path / "episode.webm"
+    path.write_bytes(build_mkv(duration_units=10_000))
+
+    info = parse_media(path)
+
+    assert info.error is None
+    assert info.duration_ms == 10_000
 
 
 def test_truncated_file_reports_error_without_raising(tmp_path: Path):

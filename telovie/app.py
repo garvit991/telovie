@@ -11,6 +11,7 @@ from pathlib import Path
 os.environ.setdefault("QT_MEDIA_BACKEND", "ffmpeg")
 
 from PySide6.QtCore import qVersion  # noqa: E402
+from PySide6.QtGui import QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from telovie import __version__  # noqa: E402
@@ -63,6 +64,8 @@ def main() -> int:
     app.setOrganizationName(ORG_NAME)
     app.setApplicationVersion(__version__)
     app.setStyle("Fusion")
+    bundle_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    app.setWindowIcon(QIcon(str(bundle_root / "telovie_logo.ico")))
 
     try:
         db = Database(paths.db_path)

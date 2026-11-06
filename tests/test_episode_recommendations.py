@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from telovie.library.episodes import episode_order, next_episode_recommendations
+from telovie.library.episodes import (
+    episode_neighbors,
+    episode_order,
+    next_episode_recommendations,
+)
 
 
 def _row(media_id: int, path: Path, *, completed: bool = False) -> dict:
@@ -43,3 +47,20 @@ def test_active_episode_suppresses_duplicate_next_episode_suggestion(tmp_path: P
     )
 
     assert recommended == []
+
+
+def test_episode_neighbors_stay_within_series_and_skip_unavailable_rows(
+    tmp_path: Path,
+):
+    show = tmp_path / "Show"
+    rows = [
+        _row(1, show / "Season 1" / "S01E01.mkv"),
+        _row(2, show / "Season 1" / "S01E02.mkv"),
+        _row(3, show / "Season 1" / "S01E03.mkv"),
+        _row(4, tmp_path / "Other Show" / "Season 1" / "S01E02.mkv"),
+    ]
+    rows[2]["IsAvailable"] = 0
+
+    assert episode_neighbors(rows, 2, tmp_path) == (1, None)
+    assert episode_neighbors(rows, 1, tmp_path) == (None, 2)
+    assert episode_neighbors(rows, 4, tmp_path) == (None, None)

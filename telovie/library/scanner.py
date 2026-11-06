@@ -1,7 +1,7 @@
-"""Background indexing of the fixed library folder.
+"""Background indexing of supported video files in the fixed library folder.
 
-The worker only touches the filesystem and the MKV header parser. Every SQLite
-write happens on the GUI thread via the ``batch`` signal.
+The worker only touches the filesystem and container metadata parsers. Every
+SQLite write happens on the GUI thread via the ``batch`` signal.
 """
 
 from __future__ import annotations
@@ -12,8 +12,10 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
+from telovie.config import MEDIA_SUFFIXES
 from telovie.library.models import MediaItem, ScanSummary
-from telovie.mkv.parser import display_title, parse_mkv
+from telovie.mkv.parser import display_title
+from telovie.media import parse_media
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ BATCH_SIZE = 40
 
 
 def collect_mkv_files(root: str | Path) -> list[Path]:
-    """Every .mkv under ``root`` (recursive, case-insensitive, stable order)."""
+    """Every supported video under ``root`` (recursive, stable, case-insensitive)."""
     root_path = Path(root)
     if not root_path.is_dir():
         return []
@@ -34,7 +36,7 @@ def collect_mkv_files(root: str | Path) -> list[Path]:
             if not name.startswith(".") and name.lower() not in SKIP_DIRS
         )
         for name in sorted(filenames):
-            if name.lower().endswith(".mkv"):
+            if Path(name).suffix.casefold() in MEDIA_SUFFIXES:
                 found.append(Path(dirpath) / name)
     return found
 
@@ -83,7 +85,7 @@ class ScanWorker(QThread):
             if self.known.get(key) == (stat.st_size, stat.st_mtime):
                 summary.unchanged += 1
             else:
-                info = parse_mkv(path)
+                info = parse_media(path)
                 if info.error:
                     summary.errors += 1
                     log.warning("Header parse failed for %s: %s", path, info.error)

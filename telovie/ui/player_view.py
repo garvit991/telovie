@@ -28,6 +28,8 @@ BARS_TIMEOUT_MS = 2600
 
 class PlayerView(QWidget):
     backRequested = Signal()
+    previousEpisodeRequested = Signal()
+    nextEpisodeRequested = Signal()
     preferencesRequested = Signal()
     volumeChanged = Signal(int)
     fullscreenChanged = Signal(bool)
@@ -79,6 +81,18 @@ class PlayerView(QWidget):
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
         )
         top.addWidget(self.title_label, 1)
+        self.previous_episode_button = QToolButton(self.top_bar)
+        self.previous_episode_button.setObjectName("EpisodeNavigation")
+        self.previous_episode_button.setText("Previous Episode")
+        self.previous_episode_button.setToolTip("Play previous episode")
+        self.previous_episode_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        top.addWidget(self.previous_episode_button)
+        self.next_episode_button = QToolButton(self.top_bar)
+        self.next_episode_button.setObjectName("EpisodeNavigation")
+        self.next_episode_button.setText("Next Episode")
+        self.next_episode_button.setToolTip("Play next episode")
+        self.next_episode_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        top.addWidget(self.next_episode_button)
         self.preferences_button = QToolButton(self.top_bar)
         self.preferences_button.setObjectName("TrackMenu")
         self.preferences_button.setText("Preferences")
@@ -165,6 +179,8 @@ class PlayerView(QWidget):
 
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self._request_back)
+        self.previous_episode_button.clicked.connect(self.previousEpisodeRequested)
+        self.next_episode_button.clicked.connect(self.nextEpisodeRequested)
         self.preferences_button.clicked.connect(self.preferencesRequested)
         self.play_button.clicked.connect(self._toggle_playback)
         self.rewind_button.clicked.connect(lambda: self._nudge(-10_000))
@@ -188,6 +204,7 @@ class PlayerView(QWidget):
         self.controller.mutedChanged.connect(self._on_muted_changed)
         self.controller.errorOccurred.connect(self._on_error)
         self.controller.tracksChanged.connect(self._rebuild_track_menus)
+        self.set_episode_navigation(False, False)
         self.play_button.setEnabled(False)
         self.rewind_button.setEnabled(False)
         self.skip_button.setEnabled(False)
@@ -241,8 +258,13 @@ class PlayerView(QWidget):
         self.volume.blockSignals(False)
         self._update_volume_icon()
 
+    def set_episode_navigation(self, has_previous: bool, has_next: bool) -> None:
+        self.previous_episode_button.setEnabled(has_previous)
+        self.next_episode_button.setEnabled(has_next)
+
     def stop_and_release(self) -> None:
         self.controller.close()
+        self.set_episode_navigation(False, False)
         self._duration = 0
         self.seek.setRange(0, 0)
         self.seek.setValue(0)
